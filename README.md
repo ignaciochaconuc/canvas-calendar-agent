@@ -1,15 +1,16 @@
 # canvas-calendar-agent
 
-Primera etapa de un proyecto para consultar de forma segura la API REST de Canvas UC.
-Por ahora, la aplicación solo obtiene los cursos activos del usuario autenticado y
-muestra sus nombres e IDs. No integra Google Calendar, IA ni extracción de fechas.
+Explorador de solo lectura para conocer la información académica disponible en
+Canvas UC antes de construir futuras integraciones.
 
-## Requisitos
+Esta etapa permite elegir un curso y consultar tareas, módulos, páginas, archivos,
+eventos de calendario, anuncios y syllabus. No descarga archivos ni integra Google
+Calendar, OpenAI o agentes.
+
+## Requisitos e instalación
 
 - Python 3.10 o superior
 - Un token de acceso personal de Canvas
-
-## Instalación
 
 ```powershell
 python -m venv .venv
@@ -18,43 +19,49 @@ python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Edita `.env` y completa las variables:
+Configura `.env` con la raíz de la misma instancia donde generaste el token:
 
 ```dotenv
-CANVAS_BASE_URL=https://canvas.uc.cl
+CANVAS_BASE_URL=https://cursos.canvas.uc.cl
 CANVAS_TOKEN=tu_token_personal
 ```
 
-El archivo `.env` está ignorado por Git. No compartas ni confirmes ese archivo.
+`.env` está ignorado por Git. No compartas ni confirmes ese archivo.
 
-## Primera prueba contra Canvas
-
-Con el entorno virtual activo y `.env` configurado:
+## Explorar un curso
 
 ```powershell
 python main.py
 ```
 
-La salida tendrá este formato:
+La CLI lista los cursos cuya **matrícula** figura como activa. Esto no significa
+necesariamente que sean cursos del semestre actual. Cada fila muestra ID, nombre,
+código, `enrollment_term_id`, estado y publicación cuando Canvas la informa.
 
-```text
-Cursos activos:
-- 12345: Nombre del curso
-```
+Después de elegir un curso por número se consultan y resumen:
 
-La URL puede variar según la instancia institucional. Debe ser la raíz de Canvas,
-sin `/api/v1` al final.
+- assignments, con descripción, fechas, tipos de entrega y URL en los datos crudos;
+- módulos y sus items (páginas, archivos, tareas, quizzes, enlaces y otros tipos);
+- metadatos de páginas y archivos, sin descargar contenido;
+- eventos de calendario;
+- anuncios;
+- detalles del curso y cuerpo HTML del syllabus, si existe.
+
+La muestra impresa contiene como máximo tres títulos por categoría. Si Canvas no
+autoriza una fuente, la CLI la marca como no disponible y continúa con las demás.
 
 ## Tests
 
-Los tests no requieren token ni acceso a Canvas:
+Los tests usan respuestas simuladas y no necesitan credenciales ni red:
 
 ```powershell
 python -m unittest discover -s tests
 ```
 
-## Seguridad
+## Seguridad y alcance
 
-Las credenciales se leen exclusivamente desde `CANVAS_TOKEN` y
-`CANVAS_BASE_URL`. No se registran ni se incluyen en mensajes de error. Mantén los
-secretos solo en `.env` o en variables de entorno del sistema.
+- El token se lee exclusivamente desde `CANVAS_TOKEN`.
+- Solo se realizan solicitudes HTTP `GET`.
+- La paginación rechaza enlaces hacia otro origen para no filtrar el token.
+- Los archivos se enumeran como metadatos; nunca se descargan.
+- No hay integración con calendarios, IA, agentes ni extracción automática de fechas.

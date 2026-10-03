@@ -35,7 +35,11 @@ class CanvasClientTests(unittest.TestCase):
         self.assertEqual(courses, [{"id": 7, "name": "Álgebra"}])
         session.get.assert_called_once_with(
             "https://canvas.example.edu/api/v1/courses",
-            params={"enrollment_state": "active", "per_page": 100},
+            params={
+                "enrollment_state": "active",
+                "include[]": "term",
+                "per_page": 100,
+            },
             timeout=15.0,
         )
         self.assertEqual(session.headers["Authorization"], "Bearer test-token")
@@ -84,6 +88,98 @@ class CanvasClientTests(unittest.TestCase):
             CanvasClient(
                 "https://canvas.example.edu", "token", session=session
             ).get_active_courses()
+
+    def test_course_resource_methods_use_expected_endpoints(self):
+        cases = (
+            ("get_assignments", "/api/v1/courses/42/assignments"),
+            ("get_pages", "/api/v1/courses/42/pages"),
+            ("get_files", "/api/v1/courses/42/files"),
+        )
+        for method_name, path in cases:
+            with self.subTest(method=method_name):
+                session = self.make_session()
+                session.get.return_value = response_with([])
+                client = CanvasClient(
+                    "https://canvas.example.edu", "token", session=session
+                )
+                self.assertEqual(getattr(client, method_name)(42), [])
+                self.assertEqual(session.get.call_args.args[0], f"https://canvas.example.edu{path}")
+                self.assertEqual(session.get.call_args.kwargs["params"], {"per_page": 100})
+
+    def test_get_modules_uses_inline_items(self):
+        session = self.make_session()
+        modules = [{"id": 8, "name": "Semana 1", "items": [{"type": "Page"}]}]
+        session.get.return_value = response_with(modules)
+        result = CanvasClient(
+            "https://canvas.example.edu", "token", session=session
+        ).get_modules(42)
+        self.assertEqual(result, modules)
+        self.assertEqual(session.get.call_count, 1)
+        self.assertEqual(
+            session.get.call_args.kwargs["params"]["include[]"],
+            ["items", "content_details"],
+        )
+
+    def test_get_modules_fetches_items_when_not_embedded(self):
+        session = self.make_session()
+        session.get.side_effect = [
+            response_with([{"id": 8, "name": "Semana 1"}]),
+            response_with([{"id": 9, "type": "File", "title": "Guía"}]),
+        ]
+        modules = CanvasClient(
+            "https://canvas.example.edu", "token", session=session
+        ).get_modules(42)
+        self.assertEqual(modules[0]["items"][0]["type"], "File")
+        self.assertEqual(
+            session.get.call_args_list[1].args[0],
+            "https://canvas.example.edu/api/v1/courses/42/modules/8/items",
+        )
+
+    def test_calendar_events_are_filtered_by_course(self):
+        session = self.make_session()
+        session.get.return_value = response_with([{"id": 3, "title": "Clase"}])
+        events = CanvasClient(
+            "https://canvas.example.edu", "token", session=session
+        ).get_calendar_events(42)
+        self.assertEqual(events[0]["title"], "Clase")
+        params = session.get.call_args.kwargs["params"]
+        self.assertEqual(params["context_codes[]"], "course_42")
+        self.assertEqual(params["type"], "event")
+        self.assertEqual(params["all_events"], "true")
+
+    def test_announcements_are_filtered_by_course(self):
+        session = self.make_session()
+        session.get.return_value = response_with([])
+        CanvasClient(
+            "https://canvas.example.edu", "token", session=session
+        ).get_announcements(42)
+        self.assertEqual(
+            session.get.call_args.args[0],
+            "https://canvas.example.edu/api/v1/announcements",
+        )
+        self.assertEqual(
+            session.get.call_args.kwargs["params"]["context_codes[]"], "course_42"
+        )
+        self.assertEqual(
+            session.get.call_args.kwargs["params"]["start_date"], "2000-01-01"
+        )
+        self.assertEqual(
+            session.get.call_args.kwargs["params"]["end_date"], "2100-01-01"
+        )
+
+    def test_course_details_requests_syllabus_and_term(self):
+        session = self.make_session()
+        session.get.return_value = response_with(
+            {"id": 42, "syllabus_body": "<p>Programa</p>"}
+        )
+        details = CanvasClient(
+            "https://canvas.example.edu", "token", session=session
+        ).get_course_details(42)
+        self.assertEqual(details["id"], 42)
+        self.assertEqual(
+            session.get.call_args.kwargs["params"]["include[]"],
+            ["syllabus_body", "term"],
+        )
 
     def test_rejects_pagination_to_another_host(self):
         session = self.make_session()
