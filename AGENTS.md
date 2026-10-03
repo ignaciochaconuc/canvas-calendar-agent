@@ -2,11 +2,11 @@
 
 ## Alcance actual
 
-Este repositorio implementa exploración de lectura de la API REST de Canvas y un
-pipeline determinístico que convierte fechas estructuradas de assignments y calendar
-events a `AcademicEvent`. El texto sin fecha estructurada se conserva como
-`EventCandidate`. No agregar Google Calendar, modelos de IA, agentes, descarga o
-lectura de PDFs ni interpretación automática de texto hasta petición explícita.
+Este repositorio implementa exploración de lectura de Canvas, un pipeline
+determinístico y un agente experimental que interpreta manualmente un único
+`EventCandidate` con salida Pydantic. El agente no tiene tools ni acceso directo a
+Canvas. No agregar Google Calendar, descarga o lectura de PDFs, tools, handoffs,
+memoria/sessions ni procesamiento automático masivo hasta petición explícita.
 
 ## Convenciones
 
@@ -28,3 +28,9 @@ lectura de PDFs ni interpretación automática de texto hasta petición explíci
 - Deduplicar eventos solo por identidad explícita (`source_type`, `source_id`), no
   mediante similitud semántica.
 - `config.json` puede contener selección local de IDs de cursos, pero jamás secretos.
+- Leer la clave de OpenAI exclusivamente desde `OPENAI_API_KEY`; nunca incluirla en
+  prompts, logs, tests, documentación o commits.
+- El modelo solo debe recibir nombre del curso, tipo de fuente, título, texto y fecha
+  de publicación del candidato. No pasar tokens, objetos cliente, IDs o URLs.
+- Los tests del agente deben mockear el Runner y no pueden usar la API real.
+- Mantener `tools=[]` hasta que se solicite explícitamente una primera tool.

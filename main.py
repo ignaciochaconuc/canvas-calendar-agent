@@ -196,9 +196,58 @@ def run_pipeline(client: CanvasClient, courses: list[dict[str, Any]],
             print(f"  - [{candidate.source_type}] {candidate.course_name}: {candidate.title}")
 
 
+def run_agent_mode(client: CanvasClient, courses: list[dict[str, Any]]) -> None:
+    """Permite interpretar manualmente un único candidato mediante el agente."""
+    course_ids = load_course_ids(CONFIG_PATH)
+    if not course_ids:
+        print("No hay cursos configurados. Ejecuta primero: python main.py pipeline")
+        return
+    courses_by_id = {int(course["id"]): course for course in courses}
+    candidates = []
+    for course_id in course_ids:
+        course = courses_by_id.get(course_id)
+        if not course:
+            continue
+        assignments, _ = fetch_source(client.get_assignments, course_id)
+        announcements, _ = fetch_source(client.get_announcements, course_id)
+        pages, _ = fetch_source(client.get_pages, course_id)
+        details, _ = fetch_source(client.get_course_details, course_id)
+        candidates.extend(build_event_candidates(
+            course, assignments=assignments or [], announcements=announcements or [],
+            pages=pages or [], course_details=details or {},
+        ))
+    if not candidates:
+        print("No se encontraron candidatos para interpretar.")
+        return
+
+    visible = candidates[:10]
+    print("Candidatos:\n")
+    for number, candidate in enumerate(visible, start=1):
+        print(f"{number}. [{candidate.source_type}] {candidate.title}")
+    while True:
+        raw = input("\nSelecciona un candidato (o 'q' para salir): ").strip()
+        if raw.lower() == "q":
+            return
+        try:
+            candidate = visible[int(raw) - 1]
+            break
+        except (ValueError, IndexError):
+            print(f"Ingresa un número entre 1 y {len(visible)}.")
+
+    if not os.getenv("OPENAI_API_KEY"):
+        raise CanvasError("OPENAI_API_KEY no está configurada en .env.")
+    # Import tardío: los otros modos no inicializan el componente experimental.
+    from canvas_calendar_agent.agent import interpret_candidate
+
+    result = interpret_candidate(candidate)
+    print("\nResultado:\n")
+    for field, value in result.model_dump(mode="json").items():
+        print(f"{field}: {value}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline"),
+    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline", "agent"),
                         default="explore")
     parser.add_argument("--select-courses", action="store_true",
                         help="vuelve a elegir y guarda los cursos del pipeline")
@@ -213,6 +262,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.mode == "pipeline":
             run_pipeline(client, courses, reselect=args.select_courses)
+        elif args.mode == "agent":
+            run_agent_mode(client, courses)
         else:
             print_courses(courses)
             explore_course(client, choose_course(courses))
