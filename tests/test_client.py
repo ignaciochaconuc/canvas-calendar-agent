@@ -91,11 +91,11 @@ class CanvasClientTests(unittest.TestCase):
 
     def test_course_resource_methods_use_expected_endpoints(self):
         cases = (
-            ("get_assignments", "/api/v1/courses/42/assignments"),
-            ("get_pages", "/api/v1/courses/42/pages"),
-            ("get_files", "/api/v1/courses/42/files"),
+            ("get_assignments", "/api/v1/courses/42/assignments", {"per_page": 100}),
+            ("get_pages", "/api/v1/courses/42/pages", {"include[]": "body", "per_page": 100}),
+            ("get_files", "/api/v1/courses/42/files", {"per_page": 100}),
         )
-        for method_name, path in cases:
+        for method_name, path, expected_params in cases:
             with self.subTest(method=method_name):
                 session = self.make_session()
                 session.get.return_value = response_with([])
@@ -104,7 +104,7 @@ class CanvasClientTests(unittest.TestCase):
                 )
                 self.assertEqual(getattr(client, method_name)(42), [])
                 self.assertEqual(session.get.call_args.args[0], f"https://canvas.example.edu{path}")
-                self.assertEqual(session.get.call_args.kwargs["params"], {"per_page": 100})
+                self.assertEqual(session.get.call_args.kwargs["params"], expected_params)
 
     def test_get_modules_uses_inline_items(self):
         session = self.make_session()

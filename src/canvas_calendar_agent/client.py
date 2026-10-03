@@ -57,8 +57,10 @@ class CanvasClient:
         return modules
 
     def get_pages(self, course_id: int) -> list[dict[str, Any]]:
-        """Devuelve metadatos de páginas, sin recuperar su cuerpo."""
-        return self._get_paginated(f"/api/v1/courses/{course_id}/pages")
+        """Devuelve páginas visibles, incluido su cuerpo cuando Canvas lo permite."""
+        return self._get_paginated(
+            f"/api/v1/courses/{course_id}/pages", params={"include[]": "body"}
+        )
 
     def get_files(self, course_id: int) -> list[dict[str, Any]]:
         """Devuelve metadatos de archivos, sin descargar su contenido."""

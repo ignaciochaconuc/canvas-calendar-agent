@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import argparse
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from canvas_calendar_agent import CanvasClient, CanvasError  # noqa: E402
+from canvas_calendar_agent.candidates import build_event_candidates  # noqa: E402
+from canvas_calendar_agent.config import load_course_ids, save_course_ids  # noqa: E402
+from canvas_calendar_agent.extractors import extract_structured_events  # noqa: E402
 
 SAMPLE_SIZE = 3
+CONFIG_PATH = PROJECT_ROOT / "config.json"
 
 
 def course_label(course: dict[str, Any]) -> str:
@@ -110,7 +115,94 @@ def explore_course(client: CanvasClient, course: dict[str, Any]) -> None:
         print(f"Items de módulos: {len(module_items)} ({breakdown})")
 
 
-def main() -> int:
+def choose_course_ids(courses: list[dict[str, Any]]) -> list[int]:
+    """Permite elegir varios cursos por los números mostrados."""
+    while True:
+        raw = input("Elige cursos por número, separados por comas: ").strip()
+        try:
+            indexes = [int(value.strip()) - 1 for value in raw.split(",")]
+            if not indexes or any(index < 0 or index >= len(courses) for index in indexes):
+                raise ValueError
+            return list(dict.fromkeys(int(courses[index]["id"]) for index in indexes))
+        except (ValueError, TypeError, KeyError):
+            print(f"Usa números entre 1 y {len(courses)}, por ejemplo: 1,3,4.")
+
+
+def run_pipeline(client: CanvasClient, courses: list[dict[str, Any]],
+                 *, reselect: bool = False) -> None:
+    course_ids = [] if reselect else load_course_ids(CONFIG_PATH)
+    if not course_ids:
+        print_courses(courses)
+        course_ids = choose_course_ids(courses)
+        save_course_ids(CONFIG_PATH, course_ids)
+        print(f"Selección guardada en {CONFIG_PATH.name}.")
+
+    courses_by_id = {int(course["id"]): course for course in courses}
+    selected = [courses_by_id[course_id] for course_id in course_ids
+                if course_id in courses_by_id]
+    missing = [course_id for course_id in course_ids if course_id not in courses_by_id]
+    if missing:
+        print("Aviso: IDs configurados no visibles: " + ", ".join(map(str, missing)))
+    if not selected:
+        print("Ningún curso configurado está disponible con la matrícula actual.")
+        return
+
+    print(f"Cursos seleccionados: {len(selected)}\n\nRecolectando información...")
+    total_events = 0
+    total_candidates = 0
+    event_sample = []
+    candidate_sample = []
+    for course in selected:
+        course_id = int(course["id"])
+        assignments, assignments_error = fetch_source(client.get_assignments, course_id)
+        events, events_error = fetch_source(client.get_calendar_events, course_id)
+        announcements, announcements_error = fetch_source(client.get_announcements, course_id)
+        pages, pages_error = fetch_source(client.get_pages, course_id)
+        details, details_error = fetch_source(client.get_course_details, course_id)
+
+        structured = extract_structured_events(
+            course, assignments or [], events or []
+        )
+        candidates = build_event_candidates(
+            course, assignments=assignments or [], announcements=announcements or [],
+            pages=pages or [], course_details=details or {},
+        )
+        print(f"\n{course_label(course)}")
+        print(f"  Eventos estructurados: {len(structured)}")
+        print(f"  Candidatos para agente: {len(candidates)}")
+        errors = [
+            ("assignments", assignments_error), ("calendar events", events_error),
+            ("announcements", announcements_error), ("pages", pages_error),
+            ("course details", details_error),
+        ]
+        for source, error in errors:
+            if error:
+                print(f"  Fuente no disponible ({source}): {error}")
+        total_events += len(structured)
+        total_candidates += len(candidates)
+        event_sample.extend(structured[: max(0, SAMPLE_SIZE - len(event_sample))])
+        candidate_sample.extend(candidates[: max(0, SAMPLE_SIZE - len(candidate_sample))])
+
+    print("\nTotal:")
+    print(f"  {total_events} eventos estructurados")
+    print(f"  {total_candidates} candidatos pendientes de interpretación")
+    if event_sample:
+        print("\nMuestra de eventos estructurados:")
+        for event in event_sample:
+            print(f"  - {event.course_name}: {event.title} — {event.start_at.isoformat()}")
+    if candidate_sample:
+        print("\nMuestra de candidatos:")
+        for candidate in candidate_sample:
+            print(f"  - [{candidate.source_type}] {candidate.course_name}: {candidate.title}")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline"),
+                        default="explore")
+    parser.add_argument("--select-courses", action="store_true",
+                        help="vuelve a elegir y guarda los cursos del pipeline")
+    args = parser.parse_args(argv)
     load_dotenv(PROJECT_ROOT / ".env")
     try:
         client = CanvasClient(os.getenv("CANVAS_BASE_URL", ""),
@@ -119,8 +211,11 @@ def main() -> int:
         if not courses:
             print("No se encontraron cursos con matrícula activa.")
             return 0
-        print_courses(courses)
-        explore_course(client, choose_course(courses))
+        if args.mode == "pipeline":
+            run_pipeline(client, courses, reselect=args.select_courses)
+        else:
+            print_courses(courses)
+            explore_course(client, choose_course(courses))
     except KeyboardInterrupt:
         print("\nExploración cancelada.")
         return 0

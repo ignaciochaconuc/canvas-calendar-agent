@@ -2,11 +2,11 @@
 
 ## Alcance actual
 
-Este repositorio implementa únicamente exploración de lectura de la API REST de
-Canvas: cursos, tareas, módulos e items, páginas, metadatos de archivos, eventos,
-anuncios y syllabus. No agregar integraciones con Google Calendar, modelos de IA,
-agentes, descarga o lectura de PDFs ni extracción automática de fechas hasta que se
-solicite explícitamente.
+Este repositorio implementa exploración de lectura de la API REST de Canvas y un
+pipeline determinístico que convierte fechas estructuradas de assignments y calendar
+events a `AcademicEvent`. El texto sin fecha estructurada se conserva como
+`EventCandidate`. No agregar Google Calendar, modelos de IA, agentes, descarga o
+lectura de PDFs ni interpretación automática de texto hasta petición explícita.
 
 ## Convenciones
 
@@ -23,3 +23,8 @@ solicite explícitamente.
 - Reutilizar la paginación común y validar que sus enlaces permanezcan en el mismo
   origen antes de enviar el token.
 - No descargar archivos: consultar únicamente sus metadatos en esta etapa.
+- Normalizar timestamps con zona mediante `zoneinfo` a `America/Santiago`; nunca
+  eliminar offsets ni asumir silenciosamente una zona para timestamps ingenuos.
+- Deduplicar eventos solo por identidad explícita (`source_type`, `source_id`), no
+  mediante similitud semántica.
+- `config.json` puede contener selección local de IDs de cursos, pero jamás secretos.
