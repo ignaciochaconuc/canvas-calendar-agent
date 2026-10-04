@@ -38,7 +38,8 @@ class CalendarTests(unittest.TestCase):
  def test_timed_payload_reminders_and_stable_key(self):
   item=self.approved(); payload=google_event_payload(item)
   self.assertEqual(payload['start']['timeZone'],'America/Santiago')
-  self.assertEqual(payload['reminders']['overrides'],[{'method':'email','minutes':10080},{'method':'popup','minutes':1440}])
+  self.assertEqual(payload['reminders']['overrides'],[{'method':'popup','minutes':10080},{'method':'popup','minutes':1440}])
+  self.assertNotIn('email',str(payload['reminders']))
   self.assertEqual(sync_key(item),sync_key(item))
  def test_all_day_payload(self):
   payload=google_event_payload(self.approved(True)); self.assertIn('date',payload['start']); self.assertNotIn('dateTime',payload['start'])

@@ -12,6 +12,16 @@ hasta petición explícita.
 
 ## Convenciones
 
+`sync-all` interactivo debe mostrar y persistir conflictos sin resolverlos
+automáticamente. `sync-all --non-interactive` nunca solicita input, omite conflictos y
+termina sin error para poder ejecutarse desde Windows Task Scheduler.
+
+`sync-all` y `calendar-sync --auto` pueden escribir sin confirmación únicamente eventos
+con fecha completa que satisfacen la política conservadora. Assignments y calendar
+events explícitos son seguros; fuentes del agente requieren confianza configurable
+(0.9 por defecto), fecha completa y ausencia de conflicto. Mantener calendarios e
+idempotencia separados por semestre y usar solo popup a 10080/1440 minutos, sin email.
+
 La escritura en Google Calendar se realiza solo mediante código Python después de
 revisión y confirmación explícita. El agente permanece sin tools ni acceso a Google.
 OAuth, revisión, configuración del calendario y registro de sincronización son archivos

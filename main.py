@@ -17,7 +17,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from canvas_calendar_agent import CanvasClient, CanvasError  # noqa: E402
 from canvas_calendar_agent.candidates import build_event_candidates  # noqa: E402
-from canvas_calendar_agent.config import load_course_ids, save_course_ids  # noqa: E402
+from canvas_calendar_agent.config import (group_courses_by_term, load_course_ids, load_semester,
+                                           save_course_ids, save_semester)  # noqa: E402
 from canvas_calendar_agent.extractors import extract_structured_events  # noqa: E402
 from canvas_calendar_agent.documents import (extract_pdf, extract_xlsx, file_candidates,
                                               is_relevant_file, spreadsheet_candidates)  # noqa: E402
@@ -26,6 +27,8 @@ from canvas_calendar_agent.year_resolution import resolve_event_year  # noqa: E4
 from canvas_calendar_agent.consolidation import analysis_to_events, consolidate_events, discard_event, edit_event  # noqa: E402
 from canvas_calendar_agent.review_store import (load_academic_events, load_events, load_json,
                                                  save_academic_events, save_events, save_json)  # noqa: E402
+from canvas_calendar_agent.automation import apply_review_decisions, is_safe_for_auto_sync  # noqa: E402
+from canvas_calendar_agent.conflict_resolution import process_conflicts, resolve_conflicts  # noqa: E402
 
 SAMPLE_SIZE = 3
 CONFIG_PATH = PROJECT_ROOT / "config.json"
@@ -373,10 +376,7 @@ def run_review(client: CanvasClient, courses: list[dict[str, Any]]) -> None:
         if action == "a" and event.start_at: event.status = "approved"
         elif action == "d": events[index] = discard_event(event)
         elif action == "r" and event.status == "conflict":
-            try:
-                option = int(input("Número de opción: ").strip()) - 1
-                events[index] = edit_event(event, start_at=event.alternatives[option])
-            except (ValueError, IndexError): print("Opción inválida.")
+            resolve_conflicts([event])
         elif action == "e":
             value = input("Fecha/hora ISO (ej. 2026-09-24T17:30:00-03:00): ").strip()
             try: events[index] = edit_event(event, start_at=datetime.fromisoformat(value))
@@ -395,34 +395,89 @@ def run_calendar_auth() -> None:
     print('OAuth completado y calendario "🎓 UC" seleccionado.')
 
 
-def run_calendar_sync() -> None:
+def run_calendar_sync(*, auto: bool = False) -> None:
     from canvas_calendar_agent.calendar_google import authorize, google_event_payload, sync_approved
+    threshold=float(os.getenv("AGENT_AUTO_APPROVE_CONFIDENCE","0.9"))
     events = [event for event in load_events(REVIEW_PATH)
-              if event.status == "approved" and event.start_at is not None]
+              if (is_safe_for_auto_sync(event, agent_threshold=threshold) if auto
+                  else event.status == "approved" and event.start_at is not None)]
     registry = load_json(SYNC_PATH); config = load_json(CALENDAR_CONFIG_PATH)
     pending = [event for event in events if __import__('canvas_calendar_agent.calendar_google', fromlist=['sync_key']).sync_key(event) not in registry]
     if not pending: print("No hay eventos aprobados pendientes de sincronización."); return
     print(f'Se crearán {len(pending)} eventos en "{config.get("calendar_name", "🎓 UC")}".')
     for number, event in enumerate(pending, 1): print(f"{number}. {google_event_payload(event)['summary']} — {event.start_at.isoformat()}")
-    if input("¿Continuar? [s/N] ").strip().lower() != "s": print("Sin cambios."); return
+    if not auto and input("¿Continuar? [s/N] ").strip().lower() != "s": print("Sin cambios."); return
     service = authorize(GOOGLE_CREDENTIALS_PATH, GOOGLE_TOKEN_PATH)
     registry = sync_approved(service, config["calendar_id"], pending, registry, confirmed=True)
     save_json(SYNC_PATH, registry); print(f"Creados: {len(pending)}.")
 
+def run_semester_setup(courses: list[dict[str, Any]]) -> None:
+    groups=group_courses_by_term(courses)
+    print("Periodos encontrados:")
+    ordered=sorted(groups.items(), key=lambda pair: pair[0], reverse=True)
+    for number,(term_id,items) in enumerate(ordered,1):
+        print(f"{number}. term {term_id}")
+        for course in items: print(f"   - {course_label(course)}")
+    choice=int(input("Elige un periodo por número: "))-1
+    term_id,items=ordered[choice]
+    label=input("Etiqueta del semestre (ej. 2026-2): ").strip()
+    save_semester(CONFIG_PATH,term_id,[int(c["id"]) for c in items],label)
+    print(f"Guardados {len(items)} cursos para {label}.")
+
+def run_sync_all(client: CanvasClient, courses: list[dict[str, Any]], *, non_interactive: bool = False) -> None:
+    from canvas_calendar_agent.calendar_google import authorize, ensure_calendar, semester_calendar_name, sync_approved, sync_key
+    semester=load_semester(CONFIG_PATH); selected_ids=set(semester["course_ids"])
+    selected=[c for c in courses if int(c["id"]) in selected_ids]
+    academic=[]; relevant_files=0
+    for course in selected:
+        assignments,_=fetch_source(client.get_assignments,int(course["id"])); calendar,_=fetch_source(client.get_calendar_events,int(course["id"]))
+        academic.extend(extract_structured_events(course,assignments or [],calendar or []))
+        files,_=fetch_source(client.get_files,int(course["id"])); relevant_files += sum(is_relevant_file(f) for f in (files or []))
+    academic.extend(e for e in load_academic_events(DETECTED_PATH) if e.course_id in selected_ids)
+    consolidated=consolidate_events(academic); apply_review_decisions(consolidated,load_events(REVIEW_PATH))
+    threshold=float(os.getenv("AGENT_AUTO_APPROVE_CONFIDENCE","0.9"))
+    safe=[e for e in consolidated if is_safe_for_auto_sync(e,agent_threshold=threshold)]
+    for event in safe: event.status="approved"
+    service=authorize(GOOGLE_CREDENTIALS_PATH,GOOGLE_TOKEN_PATH)
+    name=semester_calendar_name(semester["semester_label"]); calendar_id=ensure_calendar(service,name)
+    config=load_json(CALENDAR_CONFIG_PATH); config.setdefault("semesters",{})[semester["semester_label"]]={"calendar_id":calendar_id,"calendar_name":name}; save_json(CALENDAR_CONFIG_PATH,config)
+    registry=load_json(SYNC_PATH); prefix=calendar_id+":"
+    new=[e for e in safe if prefix+sync_key(e) not in registry]
+    existing=len(safe)-len(new)
+    sync_approved(service,calendar_id,new,registry,confirmed=True,namespace_calendar=True)
+    conflict_stats=process_conflicts(consolidated,non_interactive=non_interactive)
+    if conflict_stats["resolved"]:
+        resolved=[e for e in consolidated if e.status=="approved" and e not in safe
+                  and prefix+sync_key(e) not in registry]
+        sync_approved(service,calendar_id,resolved,registry,confirmed=True,namespace_calendar=True)
+        new.extend(resolved)
+    save_events(REVIEW_PATH,consolidated); save_json(SYNC_PATH,registry)
+    print(f"\nSincronización completada — {semester['semester_label']}\n")
+    print(f"Cursos revisados: {len(selected)}\nCreados: {len(new)}\nYa existentes: {existing}")
+    print(f"Pendientes: {sum(e.status=='pending' for e in consolidated)}")
+    print(f"Conflictos resueltos: {conflict_stats['resolved']}")
+    print(f"Conflictos pendientes: {sum(e.status=='conflict' for e in consolidated)}")
+    print(f"Descartados: {sum(e.status=='discarded' for e in consolidated)}")
+    print(f"Ignorados: {sum(not is_safe_for_auto_sync(e,agent_threshold=threshold) for e in consolidated)}")
+    print(f"Archivos relevantes conocidos: {relevant_files}")
+
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline", "agent", "files", "review", "calendar-auth", "calendar-sync"),
+    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline", "agent", "files", "review", "calendar-auth", "calendar-sync", "semester-setup", "sync-all"),
                         default="explore")
     parser.add_argument("--select-courses", action="store_true",
                         help="vuelve a elegir y guarda los cursos del pipeline")
     parser.add_argument("--agent", action="store_true",
                         help="en modo files, interpreta un único bloque elegido")
+    parser.add_argument("--auto", action="store_true", help="sincroniza eventos seguros sin confirmación")
+    parser.add_argument("--non-interactive", action="store_true",
+                        help="en sync-all, omite conflictos sin solicitar input")
     args = parser.parse_args(argv)
     load_dotenv(PROJECT_ROOT / ".env")
     try:
         if args.mode == "calendar-auth": run_calendar_auth(); return 0
-        if args.mode == "calendar-sync": run_calendar_sync(); return 0
+        if args.mode == "calendar-sync": run_calendar_sync(auto=args.auto); return 0
         client = CanvasClient(os.getenv("CANVAS_BASE_URL", ""),
                               os.getenv("CANVAS_TOKEN", ""))
         courses = client.get_active_courses()
@@ -437,6 +492,10 @@ def main(argv: list[str] | None = None) -> int:
             run_files_mode(client, courses, use_agent=args.agent)
         elif args.mode == "review":
             run_review(client, courses)
+        elif args.mode == "semester-setup":
+            run_semester_setup(courses)
+        elif args.mode == "sync-all":
+            run_sync_all(client,courses,non_interactive=args.non_interactive)
         else:
             print_courses(courses)
             explore_course(client, choose_course(courses))

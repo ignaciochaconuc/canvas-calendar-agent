@@ -4,6 +4,25 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
+
+def group_courses_by_term(courses: list[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for course in courses:
+        term_id = course.get("enrollment_term_id")
+        if isinstance(term_id, int): groups.setdefault(term_id, []).append(course)
+    return groups
+
+def save_semester(path: Path, term_id: int, course_ids: list[int], label: str) -> None:
+    path.write_text(json.dumps({"term_id": term_id, "course_ids": course_ids,
+                                "semester_label": label}, ensure_ascii=False, indent=2)+"\n", encoding="utf-8")
+
+def load_semester(path: Path) -> dict[str, Any]:
+    if not path.exists(): raise ValueError("Ejecuta primero: python main.py semester-setup")
+    data=json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data.get("term_id"),int) or not data.get("course_ids") or not str(data.get("semester_label","")).strip():
+        raise ValueError("La configuración de semestre está incompleta.")
+    return data
 
 
 def load_course_ids(path: Path) -> list[int]:

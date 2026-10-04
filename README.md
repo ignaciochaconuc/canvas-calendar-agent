@@ -216,6 +216,42 @@ IDs sincronizados en `calendar_sync.json`. Todos están ignorados. `calendar-syn
 un preview y solo escribe al responder `s`. Cada evento usa email 7 días antes y popup
 1 día antes. No se actualizan automáticamente eventos ya sincronizados.
 
+## Sincronización automática por semestre (v2)
+
+Al comenzar un semestre:
+
+```powershell
+python main.py semester-setup
+python main.py sync-all
+```
+
+`semester-setup` agrupa por `enrollment_term_id`; el usuario elige el periodo y una
+etiqueta como `2026-2`. No se adivina el semestre. `sync-all` consulta esos cursos,
+incorpora resultados manuales almacenados, consolida, respeta descartes/conflictos y
+crea solo eventos seguros en un calendario como `🎓 UC 2026-2`.
+
+`python main.py calendar-sync --auto` sincroniza sin prompt únicamente eventos seguros.
+El umbral para fuentes interpretadas se configura con `AGENT_AUTO_APPROVE_CONFIDENCE`
+(predeterminado `0.9`). No ejecuta inferencias nuevas. Los recordatorios son dos popup:
+7 días (10080 minutos) y 1 día (1440 minutos), sin email.
+
+`python main.py sync-all` es interactivo: sincroniza los eventos seguros y presenta cada
+conflicto con sus fuentes y alternativas. Permite elegir, editar, descartar o saltar. La
+decisión queda en `review_events.json` y una resolución puede sincronizarse en esa misma
+ejecución.
+
+Para automatización usa exclusivamente:
+
+```powershell
+python main.py sync-all --non-interactive
+```
+
+Este modo nunca solicita entrada: crea eventos seguros y deja los conflictos pendientes.
+
+En Windows Task Scheduler configura el Python del entorno virtual para ejecutar
+`main.py sync-all --non-interactive`, usando este repositorio como directorio inicial. El PC debe estar
+encendido y tener Internet. Ollama no es necesario mientras no haya inferencias nuevas.
+
 ## Tests
 
 Los tests usan respuestas simuladas y no necesitan credenciales ni red:

@@ -25,7 +25,7 @@ def google_event_payload(event: ConsolidatedEvent) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "summary": f"[{event.course_name}] {event.title}", "description": description,
         "reminders": {"useDefault": False, "overrides": [
-            {"method": "email", "minutes": 10080}, {"method": "popup", "minutes": 1440}]}}
+            {"method": "popup", "minutes": 10080}, {"method": "popup", "minutes": 1440}]}}
     if event.all_day:
         payload["start"] = {"date": event.start_at.date().isoformat()}
         end = event.end_at.date() if event.end_at else event.start_at.date()
@@ -56,10 +56,14 @@ def ensure_calendar(service, name: str = "🎓 UC") -> str:
         if item.get("summary") == name: return item["id"]
     return service.calendars().insert(body={"summary": name, "timeZone": TZ}).execute()["id"]
 
-def sync_approved(service, calendar_id: str, events: list[ConsolidatedEvent], registry: dict[str, str], *, confirmed: bool) -> dict[str, str]:
+def semester_calendar_name(label: str) -> str:
+    return f"🎓 UC {label.strip()}"
+
+def sync_approved(service, calendar_id: str, events: list[ConsolidatedEvent], registry: dict[str, str], *, confirmed: bool,
+                  namespace_calendar: bool = False) -> dict[str, str]:
     if not confirmed: return registry
     for event in events:
-        key = sync_key(event)
+        key = (calendar_id + ":" if namespace_calendar else "") + sync_key(event)
         if event.status == "approved" and key not in registry:
             created = service.events().insert(calendarId=calendar_id, body=google_event_payload(event)).execute()
             registry[key] = created["id"]
