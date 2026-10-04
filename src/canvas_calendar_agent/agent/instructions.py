@@ -21,4 +21,6 @@ Reglas:
   interno paso a paso.
 - event_type: exam, quiz, assignment, project, presentation, class, activity,
   deadline u other.
+- Clasifica importance como important, not_important o uncertain usando solo el contexto.
+  Fechas alternativas donde el estudiante debe elegir una no son obligaciones separadas.
 """.strip()

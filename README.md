@@ -228,7 +228,8 @@ python main.py sync-all
 `semester-setup` agrupa por `enrollment_term_id`; el usuario elige el periodo y una
 etiqueta como `2026-2`. No se adivina el semestre. `sync-all` consulta esos cursos,
 incorpora resultados manuales almacenados, consolida, respeta descartes/conflictos y
-crea solo eventos seguros en un calendario como `🎓 UC 2026-2`.
+crea solo eventos seguros en el calendario único `🎓 UC`. El semestre se usa únicamente
+para seleccionar cursos de Canvas y nunca modifica el nombre del calendario.
 
 `python main.py calendar-sync --auto` sincroniza sin prompt únicamente eventos seguros.
 El umbral para fuentes interpretadas se configura con `AGENT_AUTO_APPROVE_CONFIDENCE`
@@ -247,6 +248,28 @@ python main.py sync-all --non-interactive
 ```
 
 Este modo nunca solicita entrada: crea eventos seguros y deja los conflictos pendientes.
+
+Antes de auto-aprobar, una clasificación determinística usa `event_type`, fuente y
+título normalizado. Exámenes, interrogaciones, pruebas, tareas, entregas, proyectos,
+controles explícitos, quizzes y fechas límite son importantes. Clases, ayudantías,
+charlas, sesiones y actividades administrativas quedan como `needs_review`. Una
+presentación requiere evidencia de evaluación, entrega o proyecto. Abreviaciones de
+poco contexto como `C6` no se expanden. En modo interactivo los dudosos se muestran al
+final y pueden aprobarse o descartarse en grupos; `--non-interactive` nunca los crea.
+
+Para comprobar el destino real y distinguir entre un evento oculto en la interfaz y uno
+que no existe en la API:
+
+```powershell
+python main.py calendar-status
+```
+
+Muestra la cuenta cuando Google la informa, calendario configurado, `calendar_id`, rol,
+presencia en `calendarList` y hasta 10 eventos con sus IDs. No muestra tokens. Un
+calendario secundario puede estar desmarcado en Google Calendar; el programa no cambia
+preferencias visuales. Al ejecutar `calendar-auth` se busca siempre `🎓 UC`, se actualiza
+la configuración y se conservan intactos otros calendarios. Si el registro contiene
+eventos asociados a otro `calendar_id`, `sync-all` advierte y no los recrea sin decisión.
 
 En Windows Task Scheduler configura el Python del entorno virtual para ejecutar
 `main.py sync-all --non-interactive`, usando este repositorio como directorio inicial. El PC debe estar

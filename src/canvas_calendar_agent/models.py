@@ -88,5 +88,7 @@ class ConsolidatedEvent:
     description: str | None
     confidence: float
     sources: list[EventSource]
-    status: Literal["ok", "pending", "conflict", "approved", "discarded"]
+    status: Literal["ok", "pending", "conflict", "approved", "discarded", "needs_review"]
     alternatives: list[datetime | None] = field(default_factory=list)
+    manual_approval: bool = False
+    agent_importance: Literal["important", "not_important", "uncertain"] | None = None

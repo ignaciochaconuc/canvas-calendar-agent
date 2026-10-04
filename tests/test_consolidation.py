@@ -5,7 +5,7 @@ from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/'src'))
-from canvas_calendar_agent.calendar_google import google_event_payload, sync_approved, sync_key
+from canvas_calendar_agent.calendar_google import calendar_status, google_event_payload, registry_calendar_ids, sync_approved, sync_key
 from canvas_calendar_agent.consolidation import consolidate_events, discard_event, edit_event, normalize_title
 from canvas_calendar_agent.models import AcademicEvent
 
@@ -49,5 +49,27 @@ class CalendarTests(unittest.TestCase):
   service.events.return_value.insert.return_value.execute.return_value={'id':'google-1'}
   sync_approved(service,'cal',[item],registry,confirmed=True); sync_approved(service,'cal',[item],registry,confirmed=True)
   self.assertEqual(service.events.return_value.insert.call_count,1)
+  self.assertEqual(service.events.return_value.insert.call_args.kwargs['calendarId'],'cal')
+
+ def test_created_event_id_is_confirmed(self):
+  item=self.approved(); service=Mock(); output=[]
+  service.events.return_value.insert.return_value.execute.return_value={'id':'abc123'}
+  registry=sync_approved(service,'uc-id',[item],{},confirmed=True,calendar_name='🎓 UC',output=output.append)
+  self.assertIn('abc123','\n'.join(output)); self.assertIn('Calendario: 🎓 UC','\n'.join(output))
+  self.assertEqual(next(iter(registry.values())),'abc123')
+  service.events.return_value.insert.return_value.execute.return_value={}
+  with self.assertRaisesRegex(ValueError,'event_id'):
+   sync_approved(service,'uc-id',[item],{},confirmed=True,output=lambda _:None)
+
+ def test_calendar_status_with_and_without_events(self):
+  service=Mock(); service.calendarList.return_value.list.return_value.execute.return_value={'items':[
+   {'id':'account@example','primary':True},{'id':'uc-id','summary':'🎓 UC','accessRole':'owner'}]}
+  service.events.return_value.list.return_value.execute.return_value={'items':[{'id':'e1','summary':'Examen'}]}
+  status=calendar_status(service,'uc-id'); self.assertTrue(status['in_calendar_list']); self.assertEqual(len(status['events']),1)
+  service.events.return_value.list.return_value.execute.return_value={'items':[]}
+  self.assertEqual(calendar_status(service,'uc-id')['events'],[])
+
+ def test_detects_registry_from_another_calendar(self):
+  self.assertEqual(registry_calendar_ids({'old-calendar:'+('a'*64):'event'}),{'old-calendar'})
 
 if __name__=='__main__': unittest.main()

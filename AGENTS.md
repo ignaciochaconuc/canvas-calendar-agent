@@ -15,6 +15,12 @@ hasta petición explícita.
 `sync-all` interactivo debe mostrar y persistir conflictos sin resolverlos
 automáticamente. `sync-all --non-interactive` nunca solicita input, omite conflictos y
 termina sin error para poder ejecutarse desde Windows Task Scheduler.
+- Clasificar importancia determinísticamente antes de auto-aprobar. Clases, ayudantías,
+  charlas, sesiones y abreviaciones sin contexto deben quedar `needs_review`; no usar
+  el agente masivamente. Respetar `manual_approval` al reclasificar ejecuciones futuras.
+- Google Calendar usa siempre el calendario único `🎓 UC`; el semestre solo filtra
+  cursos de Canvas. Nunca crear calendarios con la etiqueta del periodo ni mover/borrar
+  calendarios anteriores. La recreación desde otro `calendar_id` exige decisión manual.
 
 `sync-all` y `calendar-sync --auto` pueden escribir sin confirmación únicamente eventos
 con fecha completa que satisfacen la política conservadora. Assignments y calendar

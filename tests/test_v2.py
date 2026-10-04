@@ -5,7 +5,7 @@ from unittest.mock import Mock
 from zoneinfo import ZoneInfo
 ROOT=Path(__file__).resolve().parents[1]; sys.path.insert(0,str(ROOT/'src'))
 from canvas_calendar_agent.automation import is_safe_for_auto_sync
-from canvas_calendar_agent.calendar_google import semester_calendar_name, sync_approved
+from canvas_calendar_agent.calendar_google import ensure_calendar, semester_calendar_name, sync_approved
 from canvas_calendar_agent.config import group_courses_by_term, load_semester, save_semester
 from canvas_calendar_agent.models import ConsolidatedEvent, EventSource
 
@@ -20,7 +20,12 @@ class V2Tests(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    path=Path(d)/'config.json'; save_semester(path,374,[1,2],'2026-2')
    self.assertEqual(load_semester(path)['course_ids'],[1,2])
-  self.assertEqual(semester_calendar_name('2026-2'),'🎓 UC 2026-2')
+  self.assertEqual(semester_calendar_name('2026-2'),'🎓 UC')
+ def test_reuses_single_uc_calendar(self):
+  service=Mock(); service.calendarList.return_value.list.return_value.execute.return_value={
+   'items':[{'id':'uc-id','summary':'🎓 UC'}]}
+  self.assertEqual(ensure_calendar(service,'🎓 UC'),'uc-id')
+  service.calendars.return_value.insert.assert_not_called()
  def test_auto_approval_policy(self):
   self.assertTrue(is_safe_for_auto_sync(event()))
   self.assertTrue(is_safe_for_auto_sync(event(source='calendar_event')))

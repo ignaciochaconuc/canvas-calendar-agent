@@ -9,6 +9,7 @@ from .consolidation import normalize_title
 from .models import ConsolidatedEvent
 
 TZ = "America/Santiago"
+CALENDAR_NAME = "🎓 UC"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 def sync_key(event: ConsolidatedEvent) -> str:
@@ -57,14 +58,35 @@ def ensure_calendar(service, name: str = "🎓 UC") -> str:
     return service.calendars().insert(body={"summary": name, "timeZone": TZ}).execute()["id"]
 
 def semester_calendar_name(label: str) -> str:
-    return f"🎓 UC {label.strip()}"
+    """Compatibilidad: el semestre ya no modifica el calendario de destino."""
+    return CALENDAR_NAME
+
+def registry_calendar_ids(registry: dict[str, str]) -> set[str]:
+    ids=set()
+    for key in registry:
+        if len(key) > 65 and key[-65] == ":": ids.add(key[:-65])
+    return ids
+
+def calendar_status(service, calendar_id: str) -> dict[str, Any]:
+    entries=service.calendarList().list().execute().get("items",[])
+    entry=next((item for item in entries if item.get("id")==calendar_id),None)
+    primary=next((item for item in entries if item.get("primary")),None)
+    events=service.events().list(calendarId=calendar_id,maxResults=10,
+        singleEvents=True,orderBy="updated").execute().get("items",[])
+    return {"account": primary.get("id") if primary else None,
+            "configured": entry, "in_calendar_list": entry is not None, "events": events}
 
 def sync_approved(service, calendar_id: str, events: list[ConsolidatedEvent], registry: dict[str, str], *, confirmed: bool,
-                  namespace_calendar: bool = False) -> dict[str, str]:
+                  namespace_calendar: bool = False, calendar_name: str = CALENDAR_NAME,
+                  output=print) -> dict[str, str]:
     if not confirmed: return registry
     for event in events:
         key = (calendar_id + ":" if namespace_calendar else "") + sync_key(event)
         if event.status == "approved" and key not in registry:
             created = service.events().insert(calendarId=calendar_id, body=google_event_payload(event)).execute()
-            registry[key] = created["id"]
+            event_id=created.get("id")
+            if not event_id: raise ValueError("Google creó una respuesta sin event_id.")
+            registry[key] = event_id
+            when=event.start_at.astimezone(ZoneInfo(TZ)).strftime("%Y-%m-%d %H:%M")
+            output(f"CREADO:\n[{event.course_name}] {event.title}\n{when}\nGoogle event_id: {event_id}\nCalendario: {calendar_name}")
     return registry

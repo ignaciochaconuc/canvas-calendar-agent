@@ -37,10 +37,12 @@ def consolidate_events(events: Iterable[AcademicEvent]) -> list[ConsolidatedEven
                       and _compatible_titles(current.title, item.title)
                       and _compatible_types(current.event_type, item.event_type)), None)
         if match is None:
-            result.append(ConsolidatedEvent(item.course_id, item.course_name, item.course_code,
+            consolidated=ConsolidatedEvent(item.course_id, item.course_name, item.course_code,
                 item.title, item.event_type, item.start_at, item.end_at, item.all_day,
                 item.description, item.confidence, [_source(item)],
-                "ok" if item.start_at else "pending", [item.start_at]))
+                "ok" if item.start_at else "pending", [item.start_at])
+            consolidated.agent_importance=item.metadata.get("importance")
+            result.append(consolidated)
             continue
         match.sources.append(_source(item)); match.confidence = max(match.confidence, item.confidence)
         if item.start_at not in match.alternatives: match.alternatives.append(item.start_at)
@@ -58,7 +60,8 @@ def edit_event(event: ConsolidatedEvent, *, start_at: datetime | None,
                title: str | None = None, all_day: bool | None = None) -> ConsolidatedEvent:
     return replace(event, title=title or event.title, start_at=start_at,
                    all_day=event.all_day if all_day is None else all_day,
-                   status="approved" if start_at else "pending", alternatives=[start_at])
+                   status="approved" if start_at else "pending", alternatives=[start_at],
+                   manual_approval=bool(start_at))
 
 def discard_event(event: ConsolidatedEvent) -> ConsolidatedEvent:
     return replace(event, status="discarded")
@@ -78,5 +81,6 @@ def analysis_to_events(analysis: CandidateAnalysis, candidate: EventCandidate,
             course.get("course_code"), item.title or candidate.title, item.event_type or "other",
             start, None, complete and item.time is None, item.reasoning_summary,
             candidate.source_type, f"{candidate.source_id}:event:{index}", candidate.source_url,
-            item.confidence, {"partial_date": {"year": item.year, "month": item.month, "day": item.day}}))
+            item.confidence, {"partial_date": {"year": item.year, "month": item.month, "day": item.day},
+                              "importance": item.importance}))
     return result
