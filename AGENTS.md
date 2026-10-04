@@ -12,6 +12,11 @@ hasta petición explícita.
 
 ## Convenciones
 
+La escritura en Google Calendar se realiza solo mediante código Python después de
+revisión y confirmación explícita. El agente permanece sin tools ni acceso a Google.
+OAuth, revisión, configuración del calendario y registro de sincronización son archivos
+locales ignorados por Git. No actualizar automáticamente eventos ya sincronizados.
+
 - Mantener el código sencillo, legible y con responsabilidades pequeñas.
 - Leer secretos y configuración desde variables de entorno; nunca incluir
   credenciales reales en código, tests, documentación, logs o commits.

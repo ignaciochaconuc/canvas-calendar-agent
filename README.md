@@ -195,6 +195,27 @@ Solo la capa `model_provider.py` conoce la diferencia entre proveedores. El Agen
 las instrucciones, el Runner y el schema son los mismos. Los tests mockean modelos
 y Runner; nunca ejecutan inferencia real ni consumen API.
 
+## Revisión y Google Calendar
+
+`python main.py review` reúne eventos estructurados de Canvas y resultados manuales
+del agente guardados en `detected_events.json`. La consolidación normaliza títulos y
+abreviaciones como I1, conserva separados los casos dudosos, marca fechas incompatibles
+como `conflict` y fechas incompletas como `pending`. La CLI permite aprobar, editar,
+descartar y guardar en `review_events.json`.
+
+Google Calendar usa OAuth de usuario y un calendario separado llamado `🎓 UC`. Descarga
+un cliente OAuth de escritorio desde Google Cloud como `google_credentials.json` y usa:
+
+```powershell
+python main.py calendar-auth
+python main.py calendar-sync
+```
+
+OAuth se guarda en `google_token.json`, el calendario en `calendar_config.json` y los
+IDs sincronizados en `calendar_sync.json`. Todos están ignorados. `calendar-sync` muestra
+un preview y solo escribe al responder `s`. Cada evento usa email 7 días antes y popup
+1 día antes. No se actualizan automáticamente eventos ya sincronizados.
+
 ## Tests
 
 Los tests usan respuestas simuladas y no necesitan credenciales ni red:

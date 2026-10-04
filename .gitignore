@@ -156,6 +156,12 @@ activemq-data/
 !.env.example
 .envrc
 config.json
+review_events.json
+detected_events.json
+calendar_sync.json
+calendar_config.json
+google_credentials.json
+google_token.json
 .venv
 env/
 venv/

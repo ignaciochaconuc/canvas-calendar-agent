@@ -65,3 +65,28 @@ class ExtractedSpreadsheet:
     mime_type: str
     sheet_names: list[str]
     rows: list[SpreadsheetRow]
+
+
+@dataclass(slots=True)
+class EventSource:
+    source_type: str
+    source_id: str | None
+    label: str
+    url: str | None = None
+
+
+@dataclass(slots=True)
+class ConsolidatedEvent:
+    course_id: int
+    course_name: str
+    course_code: str | None
+    title: str
+    event_type: EventType
+    start_at: datetime | None
+    end_at: datetime | None
+    all_day: bool
+    description: str | None
+    confidence: float
+    sources: list[EventSource]
+    status: Literal["ok", "pending", "conflict", "approved", "discarded"]
+    alternatives: list[datetime | None] = field(default_factory=list)

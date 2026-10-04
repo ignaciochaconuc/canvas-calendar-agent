@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import argparse
+from datetime import datetime
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -22,10 +23,19 @@ from canvas_calendar_agent.documents import (extract_pdf, extract_xlsx, file_can
                                               is_relevant_file, spreadsheet_candidates)  # noqa: E402
 from canvas_calendar_agent.file_cache import FileCache  # noqa: E402
 from canvas_calendar_agent.year_resolution import resolve_event_year  # noqa: E402
+from canvas_calendar_agent.consolidation import analysis_to_events, consolidate_events, discard_event, edit_event  # noqa: E402
+from canvas_calendar_agent.review_store import (load_academic_events, load_events, load_json,
+                                                 save_academic_events, save_events, save_json)  # noqa: E402
 
 SAMPLE_SIZE = 3
 CONFIG_PATH = PROJECT_ROOT / "config.json"
 CACHE_PATH = PROJECT_ROOT / ".cache" / "canvas_files"
+REVIEW_PATH = PROJECT_ROOT / "review_events.json"
+SYNC_PATH = PROJECT_ROOT / "calendar_sync.json"
+CALENDAR_CONFIG_PATH = PROJECT_ROOT / "calendar_config.json"
+GOOGLE_CREDENTIALS_PATH = PROJECT_ROOT / "google_credentials.json"
+GOOGLE_TOKEN_PATH = PROJECT_ROOT / "google_token.json"
+DETECTED_PATH = PROJECT_ROOT / "detected_events.json"
 
 
 def course_label(course: dict[str, Any]) -> str:
@@ -248,6 +258,9 @@ def run_agent_mode(client: CanvasClient, courses: list[dict[str, Any]]) -> None:
     result = result.model_copy(update={
         "events": [resolve_event_year(event, course) for event in result.events]
     })
+    detected = load_academic_events(DETECTED_PATH)
+    detected.extend(analysis_to_events(result, candidate, course))
+    save_academic_events(DETECTED_PATH, detected)
     print("\nResultado:\n")
     for field, value in result.model_dump(mode="json").items():
         print(f"{field}: {value}")
@@ -324,12 +337,82 @@ def run_files_mode(client: CanvasClient, courses: list[dict[str, Any]], *, use_a
     result = result.model_copy(update={
         "events": [resolve_event_year(event, course) for event in result.events]
     })
+    detected = load_academic_events(DETECTED_PATH)
+    detected.extend(analysis_to_events(result, candidate, course))
+    save_academic_events(DETECTED_PATH, detected)
     print(result.model_dump_json(indent=2))
+
+
+def _show_review(events) -> None:
+    for number, event in enumerate(events, 1):
+        when = event.start_at.strftime("%d/%m/%Y %H:%M") if event.start_at else "fecha pendiente"
+        print(f"{number}. [{event.status.upper()}] {event.course_name} — {event.title} — {when}")
+        print("   fuentes: " + ", ".join(source.label for source in event.sources))
+        if event.status == "conflict":
+            for index, value in enumerate(event.alternatives, 1):
+                print(f"   opción {index}: {value.isoformat() if value else 'sin fecha'}")
+
+
+def run_review(client: CanvasClient, courses: list[dict[str, Any]]) -> None:
+    academic = []
+    selected = set(load_course_ids(CONFIG_PATH))
+    for course in courses:
+        if int(course["id"]) not in selected: continue
+        assignments, _ = fetch_source(client.get_assignments, int(course["id"]))
+        calendar, _ = fetch_source(client.get_calendar_events, int(course["id"]))
+        academic.extend(extract_structured_events(course, assignments or [], calendar or []))
+    academic.extend(load_academic_events(DETECTED_PATH))
+    events = load_events(REVIEW_PATH) or consolidate_events(academic)
+    _show_review(events)
+    while events:
+        raw = input("\nAcción: a N aprobar, r N resolver conflicto, e N editar, d N descartar, g guardar: ").strip().lower()
+        if raw == "g": break
+        try: action, number = raw.split(); index = int(number) - 1; event = events[index]
+        except (ValueError, IndexError):
+            print("Formato inválido."); continue
+        if action == "a" and event.start_at: event.status = "approved"
+        elif action == "d": events[index] = discard_event(event)
+        elif action == "r" and event.status == "conflict":
+            try:
+                option = int(input("Número de opción: ").strip()) - 1
+                events[index] = edit_event(event, start_at=event.alternatives[option])
+            except (ValueError, IndexError): print("Opción inválida.")
+        elif action == "e":
+            value = input("Fecha/hora ISO (ej. 2026-09-24T17:30:00-03:00): ").strip()
+            try: events[index] = edit_event(event, start_at=datetime.fromisoformat(value))
+            except ValueError: print("Fecha inválida.")
+        else: print("La acción no es aplicable.")
+    save_events(REVIEW_PATH, events); print(f"Revisión guardada en {REVIEW_PATH.name}.")
+
+
+def run_calendar_auth() -> None:
+    from canvas_calendar_agent.calendar_google import authorize, ensure_calendar
+    if not GOOGLE_CREDENTIALS_PATH.exists():
+        raise ValueError("Falta google_credentials.json descargado desde Google Cloud.")
+    service = authorize(GOOGLE_CREDENTIALS_PATH, GOOGLE_TOKEN_PATH)
+    calendar_id = ensure_calendar(service)
+    save_json(CALENDAR_CONFIG_PATH, {"calendar_id": calendar_id, "calendar_name": "🎓 UC"})
+    print('OAuth completado y calendario "🎓 UC" seleccionado.')
+
+
+def run_calendar_sync() -> None:
+    from canvas_calendar_agent.calendar_google import authorize, google_event_payload, sync_approved
+    events = [event for event in load_events(REVIEW_PATH)
+              if event.status == "approved" and event.start_at is not None]
+    registry = load_json(SYNC_PATH); config = load_json(CALENDAR_CONFIG_PATH)
+    pending = [event for event in events if __import__('canvas_calendar_agent.calendar_google', fromlist=['sync_key']).sync_key(event) not in registry]
+    if not pending: print("No hay eventos aprobados pendientes de sincronización."); return
+    print(f'Se crearán {len(pending)} eventos en "{config.get("calendar_name", "🎓 UC")}".')
+    for number, event in enumerate(pending, 1): print(f"{number}. {google_event_payload(event)['summary']} — {event.start_at.isoformat()}")
+    if input("¿Continuar? [s/N] ").strip().lower() != "s": print("Sin cambios."); return
+    service = authorize(GOOGLE_CREDENTIALS_PATH, GOOGLE_TOKEN_PATH)
+    registry = sync_approved(service, config["calendar_id"], pending, registry, confirmed=True)
+    save_json(SYNC_PATH, registry); print(f"Creados: {len(pending)}.")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline", "agent", "files"),
+    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline", "agent", "files", "review", "calendar-auth", "calendar-sync"),
                         default="explore")
     parser.add_argument("--select-courses", action="store_true",
                         help="vuelve a elegir y guarda los cursos del pipeline")
@@ -338,6 +421,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     load_dotenv(PROJECT_ROOT / ".env")
     try:
+        if args.mode == "calendar-auth": run_calendar_auth(); return 0
+        if args.mode == "calendar-sync": run_calendar_sync(); return 0
         client = CanvasClient(os.getenv("CANVAS_BASE_URL", ""),
                               os.getenv("CANVAS_TOKEN", ""))
         courses = client.get_active_courses()
@@ -350,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
             run_agent_mode(client, courses)
         elif args.mode == "files":
             run_files_mode(client, courses, use_agent=args.agent)
+        elif args.mode == "review":
+            run_review(client, courses)
         else:
             print_courses(courses)
             explore_course(client, choose_course(courses))
