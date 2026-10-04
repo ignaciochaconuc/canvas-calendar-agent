@@ -40,3 +40,12 @@ class EventCandidate:
     text: str | None
     source_url: str | None
     published_at: datetime | None
+
+
+@dataclass(slots=True)
+class ExtractedDocument:
+    filename: str
+    mime_type: str
+    page_count: int
+    text: str
+    pages: list[str]

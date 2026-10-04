@@ -18,9 +18,12 @@ from canvas_calendar_agent import CanvasClient, CanvasError  # noqa: E402
 from canvas_calendar_agent.candidates import build_event_candidates  # noqa: E402
 from canvas_calendar_agent.config import load_course_ids, save_course_ids  # noqa: E402
 from canvas_calendar_agent.extractors import extract_structured_events  # noqa: E402
+from canvas_calendar_agent.documents import extract_pdf, file_candidates, is_relevant_file  # noqa: E402
+from canvas_calendar_agent.file_cache import FileCache  # noqa: E402
 
 SAMPLE_SIZE = 3
 CONFIG_PATH = PROJECT_ROOT / "config.json"
+CACHE_PATH = PROJECT_ROOT / ".cache" / "canvas_files"
 
 
 def course_label(course: dict[str, Any]) -> str:
@@ -244,12 +247,75 @@ def run_agent_mode(client: CanvasClient, courses: list[dict[str, Any]]) -> None:
         print(f"{field}: {value}")
 
 
+def _choose_many(count: int, prompt: str) -> list[int]:
+    while True:
+        raw = input(prompt).strip()
+        if raw.lower() == "q":
+            return []
+        try:
+            values = list(dict.fromkeys(int(item.strip()) - 1 for item in raw.split(",")))
+            if not values or any(value < 0 or value >= count for value in values):
+                raise ValueError
+            return values
+        except ValueError:
+            print(f"Usa números entre 1 y {count}, separados por comas.")
+
+
+def run_files_mode(client: CanvasClient, courses: list[dict[str, Any]], *, use_agent: bool) -> None:
+    """Descarga únicamente PDFs relevantes elegidos manualmente."""
+    selected_ids = load_course_ids(CONFIG_PATH)
+    selected = [course for course in courses if int(course["id"]) in selected_ids]
+    if not selected:
+        print("No hay cursos configurados. Ejecuta primero: python main.py pipeline")
+        return
+    max_bytes = int(float(os.getenv("MAX_FILE_SIZE_MB", "20")) * 1024 * 1024)
+    choices: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for course in selected:
+        files, error = fetch_source(client.get_files, int(course["id"]))
+        if error:
+            print(f"{course_label(course)}: no se pudieron listar archivos ({error})")
+            continue
+        choices.extend((course, file) for file in files if is_relevant_file(file, max_bytes=max_bytes))
+    if not choices:
+        print("No se encontraron PDFs relevantes dentro del límite configurado.")
+        return
+    print("Archivos PDF relevantes:\n")
+    for number, (course, file) in enumerate(choices, 1):
+        print(f"{number}. {course_label(course)} | {file.get('display_name') or file.get('filename')} | "
+              f"{file.get('content-type', '?')} | {file.get('size', '?')} bytes")
+    indexes = _choose_many(len(choices), "\nSelecciona archivos (ej. 1,3; q para salir): ")
+    cache = FileCache(CACHE_PATH)
+    candidates = []
+    for index in indexes:
+        course, file = choices[index]
+        path = cache.get(file) or client.download_file(file, cache.path_for(file), max_bytes=max_bytes)
+        document = extract_pdf(path, filename=str(file.get("display_name") or file.get("filename")))
+        generated = file_candidates(document, file, course)
+        candidates.extend(generated)
+        print(f"{document.filename}: {document.page_count} páginas, {len(generated)} bloques relevantes")
+    if not use_agent or not candidates:
+        return
+    print("\nCandidatos de archivo:")
+    for number, candidate in enumerate(candidates, 1):
+        print(f"{number}. {candidate.title}")
+    selected_candidate = _choose_many(len(candidates), "Elige UN candidato para el agente: ")
+    if not selected_candidate:
+        return
+    candidate = candidates[selected_candidate[0]]
+    from canvas_calendar_agent.agent import check_model_available, interpret_candidate
+    check_model_available()
+    result = interpret_candidate(candidate)
+    print(result.model_dump_json(indent=2))
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline", "agent"),
+    parser.add_argument("mode", nargs="?", choices=("explore", "pipeline", "agent", "files"),
                         default="explore")
     parser.add_argument("--select-courses", action="store_true",
                         help="vuelve a elegir y guarda los cursos del pipeline")
+    parser.add_argument("--agent", action="store_true",
+                        help="en modo files, interpreta un único bloque elegido")
     args = parser.parse_args(argv)
     load_dotenv(PROJECT_ROOT / ".env")
     try:
@@ -263,6 +329,8 @@ def main(argv: list[str] | None = None) -> int:
             run_pipeline(client, courses, reselect=args.select_courses)
         elif args.mode == "agent":
             run_agent_mode(client, courses)
+        elif args.mode == "files":
+            run_files_mode(client, courses, use_agent=args.agent)
         else:
             print_courses(courses)
             explore_course(client, choose_course(courses))

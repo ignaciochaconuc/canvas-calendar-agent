@@ -6,8 +6,9 @@ Este repositorio implementa exploración de lectura de Canvas, un pipeline
 determinístico y un agente experimental que interpreta manualmente un único
 `EventCandidate` con salida Pydantic. El agente no tiene tools ni acceso directo a
 Canvas. El backend puede ser Ollama local u OpenAI mediante una capa desacoplada.
-No agregar Google Calendar, descarga o lectura de PDFs, tools, handoffs,
-memoria/sessions ni procesamiento automático masivo hasta petición explícita.
+Incluye descarga manual y extracción local de PDFs relevantes. No agregar Google
+Calendar, OCR, tools, handoffs, memoria/sessions ni procesamiento automático masivo
+hasta petición explícita.
 
 ## Convenciones
 
@@ -23,7 +24,8 @@ memoria/sessions ni procesamiento automático masivo hasta petición explícita.
   conservar y mostrar la información del periodo de Canvas.
 - Reutilizar la paginación común y validar que sus enlaces permanezcan en el mismo
   origen antes de enviar el token.
-- No descargar archivos: consultar únicamente sus metadatos en esta etapa.
+- Descargar solo PDFs elegidos explícitamente, con límite de tamaño, caché ignorada,
+  validación MIME y sin reenviar autenticación a orígenes externos.
 - Normalizar timestamps con zona mediante `zoneinfo` a `America/Santiago`; nunca
   eliminar offsets ni asumir silenciosamente una zona para timestamps ingenuos.
 - Deduplicar eventos solo por identidad explícita (`source_type`, `source_id`), no

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
 
@@ -87,6 +88,60 @@ class CanvasClient:
             "latest_only": "false", "start_date": "2000-01-01",
             "end_date": "2100-01-01", "per_page": 100,
         })
+
+    def download_file(self, file: dict[str, Any], destination: Path, *,
+                      max_bytes: int = 20 * 1024 * 1024) -> Path:
+        """Descarga explícitamente un PDF, limitando tamaño y fuga del token."""
+        mime = str(file.get("content-type") or file.get("content_type") or "").lower()
+        name = str(file.get("display_name") or file.get("filename") or "")
+        if mime not in {"application/pdf", "application/x-pdf"} or not name.lower().endswith(".pdf"):
+            raise CanvasError("Solo se permite descargar archivos PDF identificados como tales.")
+        size = file.get("size")
+        if isinstance(size, (int, float)) and size > max_bytes:
+            raise CanvasError("El archivo supera el límite de tamaño configurado.")
+        url = str(file.get("url") or "")
+        self._validate_same_origin(url)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        current = url
+        authenticated = True
+        written = 0
+        try:
+            for _ in range(5):
+                requester = self.session if authenticated else requests
+                response = requester.get(current, timeout=self.timeout, stream=True,
+                                         allow_redirects=False)
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    target = urljoin(current, response.headers.get("Location", ""))
+                    parsed = urlparse(target)
+                    if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password:
+                        raise CanvasError("Canvas devolvió una redirección de descarga insegura.")
+                    authenticated = False
+                    current = target
+                    continue
+                if not response.ok:
+                    raise CanvasError(f"La descarga respondió con HTTP {response.status_code}.")
+                response_mime = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
+                if response_mime and response_mime not in {"application/pdf", "application/x-pdf",
+                                                            "application/octet-stream"}:
+                    raise CanvasError("El servidor devolvió un tipo de archivo inesperado.")
+                length = response.headers.get("Content-Length")
+                if length and int(length) > max_bytes:
+                    raise CanvasError("El archivo supera el límite de tamaño configurado.")
+                with destination.open("wb") as output:
+                    for chunk in response.iter_content(64 * 1024):
+                        if not chunk:
+                            continue
+                        written += len(chunk)
+                        if written > max_bytes:
+                            raise CanvasError("El archivo supera el límite de tamaño configurado.")
+                        output.write(chunk)
+                return destination
+            raise CanvasError("La descarga excedió el límite de redirecciones.")
+        except requests.exceptions.RequestException as exc:
+            raise CanvasError("No fue posible descargar el archivo desde Canvas.") from exc
+        finally:
+            if written > max_bytes and destination.exists():
+                destination.unlink()
 
     def _get_paginated(self, path: str, *,
                        params: dict[str, Any] | None = None) -> list[dict[str, Any]]:

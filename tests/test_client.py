@@ -1,5 +1,6 @@
 import unittest
 import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -191,6 +192,41 @@ class CanvasClientTests(unittest.TestCase):
             CanvasClient(
                 "https://canvas.example.edu", "token", session=session
             ).get_active_courses()
+
+    def test_download_pdf_is_bounded_and_streamed(self):
+        session = self.make_session()
+        response = response_with(None)
+        response.headers = {"Content-Length": "4"}
+        response.iter_content.return_value = [b"%PDF"]
+        session.get.return_value = response
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "file.pdf"
+            result = CanvasClient("https://canvas.example.edu", "token", session=session).download_file(
+                {"id": 1, "filename": "programa.pdf", "content-type": "application/pdf",
+                 "size": 4, "url": "https://canvas.example.edu/files/1/download"}, target)
+            self.assertEqual(result.read_bytes(), b"%PDF")
+        self.assertFalse(session.get.call_args.kwargs["allow_redirects"])
+        self.assertTrue(session.get.call_args.kwargs["stream"])
+
+    def test_download_rejects_wrong_mime_and_oversize(self):
+        client = CanvasClient("https://canvas.example.edu", "token", session=self.make_session())
+        base = {"filename": "programa.pdf", "url": "https://canvas.example.edu/f", "size": 1}
+        with self.assertRaisesRegex(CanvasError, "PDF"):
+            client.download_file({**base, "content-type": "text/plain"}, Path("unused"))
+        with self.assertRaisesRegex(CanvasError, "tamaño"):
+            client.download_file({**base, "content-type": "application/pdf", "size": 100},
+                                 Path("unused"), max_bytes=10)
+
+    def test_download_rejects_unexpected_response_mime(self):
+        session = self.make_session()
+        response = response_with(None)
+        response.headers = {"Content-Type": "text/html"}
+        session.get.return_value = response
+        client = CanvasClient("https://canvas.example.edu", "token", session=session)
+        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(CanvasError, "tipo"):
+            client.download_file(
+                {"filename": "programa.pdf", "content-type": "application/pdf", "size": 1,
+                 "url": "https://canvas.example.edu/f"}, Path(directory) / "file.pdf")
 
 
 if __name__ == "__main__":

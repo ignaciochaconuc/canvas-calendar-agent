@@ -5,7 +5,8 @@ Canvas UC antes de construir futuras integraciones.
 
 Permite consultar fuentes de Canvas, transformar fechas explícitas en
 `AcademicEvent` e interpretar manualmente un `EventCandidate` mediante un agente.
-No descarga archivos ni integra Google Calendar.
+Puede descargar manualmente PDFs prefiltrados para extraer texto localmente. No
+integra Google Calendar ni procesa archivos masivamente.
 
 ## Requisitos e instalación
 
@@ -28,6 +29,7 @@ CANVAS_TOKEN=tu_token_personal
 MODEL_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434/v1
 OLLAMA_MODEL=qwen3:8b
+MAX_FILE_SIZE_MB=20
 ```
 
 `.env` está ignorado por Git. No compartas ni confirmes ese archivo.
@@ -89,6 +91,21 @@ Las fechas ISO 8601 conservan su instante y se convierten mediante `zoneinfo` a
 `America/Santiago`. No se aceptan timestamps sin zona horaria. No hay clasificación
 por IA: las tareas se marcan como `assignment` y los eventos genéricos de calendario
 como `other` hasta una etapa posterior.
+
+## Explorar documentos PDF
+
+`python main.py files` lista solamente PDFs cuyo nombre parece corresponder a un
+programa, calendario, cronograma o planificación en los cursos configurados. El
+usuario elige cuáles descargar. Se guardan en `.cache/canvas_files/`, se extrae el
+texto por página con PyMuPDF y se generan candidatos solo para bloques que combinan
+vocabulario de eventos con meses o patrones de fecha. PDFs escaneados sin capa de
+texto se reportan sin candidatos; no hay OCR.
+
+`python main.py files --agent` añade una segunda selección manual y envía exactamente
+un candidato al agente configurado. Nunca envía el documento completo automáticamente.
+
+Las descargas aceptan solo PDF, aplican `MAX_FILE_SIZE_MB`, usan timeout y no reenvían
+el token de Canvas a hosts externos durante redirecciones.
 
 ## Agente experimental
 
@@ -182,6 +199,6 @@ python -m unittest discover -s tests
 - El token se lee exclusivamente desde `CANVAS_TOKEN`.
 - Solo se realizan solicitudes HTTP `GET`.
 - La paginación rechaza enlaces hacia otro origen para no filtrar el token.
-- Los archivos se enumeran como metadatos; nunca se descargan.
+- Solo se descargan PDFs relevantes seleccionados explícitamente, a una caché ignorada.
 - El agente experimental solo interpreta un candidato elegido manualmente.
 - No hay integración con calendarios ni acciones externas.
