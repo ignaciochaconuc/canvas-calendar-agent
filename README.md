@@ -94,8 +94,8 @@ como `other` hasta una etapa posterior.
 
 ## Explorar documentos PDF
 
-`python main.py files` lista solamente PDFs cuyo nombre parece corresponder a un
-programa, calendario, cronograma o planificación en los cursos configurados. El
+`python main.py files` lista solamente PDFs y XLSX cuyo nombre parece corresponder a un
+programa, calendario, cronograma, proyecto o planificación en los cursos configurados. El
 usuario elige cuáles descargar. Se guardan en `.cache/canvas_files/`, se extrae el
 texto por página con PyMuPDF y se generan candidatos solo para bloques que combinan
 vocabulario de eventos con meses o patrones de fecha. PDFs escaneados sin capa de
@@ -104,8 +104,17 @@ texto se reportan sin candidatos; no hay OCR.
 `python main.py files --agent` añade una segunda selección manual y envía exactamente
 un candidato al agente configurado. Nunca envía el documento completo automáticamente.
 
-Las descargas aceptan solo PDF, aplican `MAX_FILE_SIZE_MB`, usan timeout y no reenvían
+Los XLSX se leen localmente con `openpyxl` en modo `data_only=True`: no se ejecutan
+fórmulas ni macros y solo se crean bloques de hojas/filas con fechas o vocabulario
+académico. Las descargas aceptan solo PDF/XLSX, aplican `MAX_FILE_SIZE_MB` y no reenvían
 el token de Canvas a hosts externos durante redirecciones.
+
+El agente devuelve `CandidateAnalysis.events`, por lo que un bloque puede producir cero,
+uno o varios eventos. Día, mes y año son campos separados; el agente debe dejar el año
+nulo si no aparece en el texto. Después, código determinístico puede completarlo solo
+cuando nombre, código o periodo del curso contienen un único año explícito.
+Una barrera posterior al modelo elimina cualquier año que no aparezca literalmente en
+el bloque, incluso si el modelo incumple la instrucción.
 
 ## Agente experimental
 

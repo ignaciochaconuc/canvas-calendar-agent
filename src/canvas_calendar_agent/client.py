@@ -91,11 +91,14 @@ class CanvasClient:
 
     def download_file(self, file: dict[str, Any], destination: Path, *,
                       max_bytes: int = 20 * 1024 * 1024) -> Path:
-        """Descarga explícitamente un PDF, limitando tamaño y fuga del token."""
+        """Descarga explícitamente un PDF/XLSX, limitando tamaño y fuga del token."""
         mime = str(file.get("content-type") or file.get("content_type") or "").lower()
         name = str(file.get("display_name") or file.get("filename") or "")
-        if mime not in {"application/pdf", "application/x-pdf"} or not name.lower().endswith(".pdf"):
-            raise CanvasError("Solo se permite descargar archivos PDF identificados como tales.")
+        allowed = {".pdf": {"application/pdf", "application/x-pdf"},
+                   ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}}
+        extension = Path(name).suffix.lower()
+        if extension not in allowed or mime not in allowed[extension]:
+            raise CanvasError("Solo se permite descargar archivos PDF o XLSX identificados como tales.")
         size = file.get("size")
         if isinstance(size, (int, float)) and size > max_bytes:
             raise CanvasError("El archivo supera el límite de tamaño configurado.")
@@ -121,8 +124,7 @@ class CanvasClient:
                 if not response.ok:
                     raise CanvasError(f"La descarga respondió con HTTP {response.status_code}.")
                 response_mime = response.headers.get("Content-Type", "").split(";", 1)[0].lower()
-                if response_mime and response_mime not in {"application/pdf", "application/x-pdf",
-                                                            "application/octet-stream"}:
+                if response_mime and response_mime not in allowed[extension] | {"application/octet-stream"}:
                     raise CanvasError("El servidor devolvió un tipo de archivo inesperado.")
                 length = response.headers.get("Content-Length")
                 if length and int(length) > max_bytes:

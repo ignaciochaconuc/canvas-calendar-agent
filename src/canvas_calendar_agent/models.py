@@ -40,6 +40,7 @@ class EventCandidate:
     text: str | None
     source_url: str | None
     published_at: datetime | None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -49,3 +50,18 @@ class ExtractedDocument:
     page_count: int
     text: str
     pages: list[str]
+
+
+@dataclass(slots=True)
+class SpreadsheetRow:
+    sheet_name: str
+    row_number: int
+    values: list[str]
+
+
+@dataclass(slots=True)
+class ExtractedSpreadsheet:
+    filename: str
+    mime_type: str
+    sheet_names: list[str]
+    rows: list[SpreadsheetRow]

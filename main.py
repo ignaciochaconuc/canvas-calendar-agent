@@ -18,8 +18,10 @@ from canvas_calendar_agent import CanvasClient, CanvasError  # noqa: E402
 from canvas_calendar_agent.candidates import build_event_candidates  # noqa: E402
 from canvas_calendar_agent.config import load_course_ids, save_course_ids  # noqa: E402
 from canvas_calendar_agent.extractors import extract_structured_events  # noqa: E402
-from canvas_calendar_agent.documents import extract_pdf, file_candidates, is_relevant_file  # noqa: E402
+from canvas_calendar_agent.documents import (extract_pdf, extract_xlsx, file_candidates,
+                                              is_relevant_file, spreadsheet_candidates)  # noqa: E402
 from canvas_calendar_agent.file_cache import FileCache  # noqa: E402
+from canvas_calendar_agent.year_resolution import resolve_event_year  # noqa: E402
 
 SAMPLE_SIZE = 3
 CONFIG_PATH = PROJECT_ROOT / "config.json"
@@ -242,6 +244,10 @@ def run_agent_mode(client: CanvasClient, courses: list[dict[str, Any]]) -> None:
 
     check_model_available()
     result = interpret_candidate(candidate)
+    course = courses_by_id.get(candidate.course_id, {})
+    result = result.model_copy(update={
+        "events": [resolve_event_year(event, course) for event in result.events]
+    })
     print("\nResultado:\n")
     for field, value in result.model_dump(mode="json").items():
         print(f"{field}: {value}")
@@ -281,7 +287,9 @@ def run_files_mode(client: CanvasClient, courses: list[dict[str, Any]], *, use_a
         return
     print("Archivos PDF relevantes:\n")
     for number, (course, file) in enumerate(choices, 1):
-        print(f"{number}. {course_label(course)} | {file.get('display_name') or file.get('filename')} | "
+        name = str(file.get('display_name') or file.get('filename'))
+        kind = "XLSX" if name.lower().endswith(".xlsx") else "PDF"
+        print(f"{number}. [{kind}] {course_label(course)} | {name} | "
               f"{file.get('content-type', '?')} | {file.get('size', '?')} bytes")
     indexes = _choose_many(len(choices), "\nSelecciona archivos (ej. 1,3; q para salir): ")
     cache = FileCache(CACHE_PATH)
@@ -289,10 +297,17 @@ def run_files_mode(client: CanvasClient, courses: list[dict[str, Any]], *, use_a
     for index in indexes:
         course, file = choices[index]
         path = cache.get(file) or client.download_file(file, cache.path_for(file), max_bytes=max_bytes)
-        document = extract_pdf(path, filename=str(file.get("display_name") or file.get("filename")))
-        generated = file_candidates(document, file, course)
+        filename = str(file.get("display_name") or file.get("filename"))
+        if filename.lower().endswith(".xlsx"):
+            document = extract_xlsx(path, filename=filename)
+            generated = spreadsheet_candidates(document, file, course)
+            detail = f"{len(document.sheet_names)} hojas"
+        else:
+            document = extract_pdf(path, filename=filename)
+            generated = file_candidates(document, file, course)
+            detail = f"{document.page_count} páginas"
         candidates.extend(generated)
-        print(f"{document.filename}: {document.page_count} páginas, {len(generated)} bloques relevantes")
+        print(f"{document.filename}: {detail}, {len(generated)} bloques relevantes")
     if not use_agent or not candidates:
         return
     print("\nCandidatos de archivo:")
@@ -305,6 +320,10 @@ def run_files_mode(client: CanvasClient, courses: list[dict[str, Any]], *, use_a
     from canvas_calendar_agent.agent import check_model_available, interpret_candidate
     check_model_available()
     result = interpret_candidate(candidate)
+    course = next((item for item in courses if int(item["id"]) == candidate.course_id), {})
+    result = result.model_copy(update={
+        "events": [resolve_event_year(event, course) for event in result.events]
+    })
     print(result.model_dump_json(indent=2))
 
 

@@ -4,22 +4,26 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from datetime import datetime
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
 import pymupdf
+from openpyxl import load_workbook
 
-from .models import EventCandidate, ExtractedDocument
+from .models import (EventCandidate, ExtractedDocument, ExtractedSpreadsheet,
+                     SpreadsheetRow)
 
 FILE_KEYWORDS = ("programa", "calendario", "cronograma", "planificacion", "evaluacion",
-                 "evaluaciones", "fechas", "syllabus", "schedule")
+                 "evaluaciones", "fechas", "proyecto", "syllabus", "schedule")
 EVENT_WORDS = ("prueba", "examen", "interrogacion", "control", "entrega", "proyecto",
                "presentacion", "evaluacion", "certamen", "tarea", "fecha", "calendario",
                "semana", "quiz")
 MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto",
           "septiembre", "octubre", "noviembre", "diciembre")
 DATE_RE = re.compile(r"\b(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b")
+PDF_MIMES = {"application/pdf", "application/x-pdf"}
+XLSX_MIMES = {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
 
 
 def _plain(value: str) -> str:
@@ -31,9 +35,70 @@ def is_relevant_file(file: dict[str, Any], *, max_bytes: int = 20 * 1024 * 1024)
     name = str(file.get("display_name") or file.get("filename") or "")
     mime = str(file.get("content-type") or file.get("content_type") or "").lower()
     size = file.get("size", 0)
-    return (name.lower().endswith(".pdf") and mime in {"application/pdf", "application/x-pdf"}
+    supported = ((name.lower().endswith(".pdf") and mime in PDF_MIMES) or
+                 (name.lower().endswith(".xlsx") and mime in XLSX_MIMES))
+    return (supported
             and isinstance(size, (int, float)) and size <= max_bytes
             and any(re.search(rf"\b{re.escape(word)}\b", _plain(name)) for word in FILE_KEYWORDS))
+
+
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        return value.isoformat(sep=" ", timespec="minutes")
+    if isinstance(value, (date, time)):
+        return value.isoformat(timespec="minutes") if isinstance(value, time) else value.isoformat()
+    return str(value)
+
+
+def extract_xlsx(path: Path, *, filename: str | None = None) -> ExtractedSpreadsheet:
+    workbook = load_workbook(path, read_only=True, data_only=True, keep_links=False)
+    rows: list[SpreadsheetRow] = []
+    try:
+        for sheet in workbook.worksheets:
+            for number, cells in enumerate(sheet.iter_rows(values_only=True), 1):
+                values = [_cell_text(value) for value in cells]
+                while values and not values[-1]:
+                    values.pop()
+                if any(values):
+                    rows.append(SpreadsheetRow(sheet.title, number, values))
+        return ExtractedSpreadsheet(filename or path.name, next(iter(XLSX_MIMES)),
+                                    workbook.sheetnames, rows)
+    finally:
+        workbook.close()
+
+
+def spreadsheet_blocks(document: ExtractedSpreadsheet) -> list[tuple[str, list[int], str]]:
+    blocks: list[tuple[str, list[int], str]] = []
+    for sheet in document.sheet_names:
+        rows = [row for row in document.rows if row.sheet_name == sheet]
+        if not rows:
+            continue
+        header = rows[0]
+        relevant = []
+        for row in rows:
+            normalized = _plain(" | ".join(row.values))
+            if any(re.search(rf"\b{re.escape(word)}\b", normalized) for word in EVENT_WORDS):
+                relevant.append(row)
+            elif any(DATE_RE.search(value) for value in row.values):
+                relevant.append(row)
+        if relevant:
+            selected = [header] + [row for row in relevant if row.row_number != header.row_number]
+            text = f"Archivo: {document.filename}\nHoja: {sheet}\n\n" + "\n".join(
+                " | ".join(row.values) for row in selected)
+            blocks.append((sheet, [row.row_number for row in relevant], text))
+    return blocks
+
+
+def spreadsheet_candidates(document: ExtractedSpreadsheet, file: dict[str, Any],
+                           course: dict[str, Any]) -> list[EventCandidate]:
+    source_id = str(file.get("id", "unknown"))
+    return [EventCandidate(int(course["id"]), str(course.get("name") or "Sin nombre"), "file",
+                           f"{source_id}:sheet:{sheet}", f"{document.filename} — {sheet}", text,
+                           file.get("url"), None,
+                           {"file_type": "xlsx", "sheet": sheet, "rows": rows})
+            for sheet, rows, text in spreadsheet_blocks(document)]
 
 
 def extract_pdf(path: Path, *, filename: str | None = None) -> ExtractedDocument:

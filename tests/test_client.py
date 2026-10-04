@@ -228,6 +228,17 @@ class CanvasClientTests(unittest.TestCase):
                 {"filename": "programa.pdf", "content-type": "application/pdf", "size": 1,
                  "url": "https://canvas.example.edu/f"}, Path(directory) / "file.pdf")
 
+    def test_download_accepts_xlsx_metadata(self):
+        session = self.make_session(); response = response_with(None)
+        response.headers = {"Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+        response.iter_content.return_value = [b"PK"]
+        session.get.return_value = response
+        with tempfile.TemporaryDirectory() as directory:
+            path = CanvasClient("https://canvas.example.edu", "token", session=session).download_file(
+                {"filename": "calendario.xlsx", "content-type": response.headers["Content-Type"],
+                 "size": 2, "url": "https://canvas.example.edu/f"}, Path(directory) / "file.xlsx")
+            self.assertEqual(path.read_bytes(), b"PK")
+
 
 if __name__ == "__main__":
     unittest.main()

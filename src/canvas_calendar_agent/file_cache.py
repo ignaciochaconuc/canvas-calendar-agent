@@ -14,7 +14,9 @@ class FileCache:
     def path_for(self, file: dict[str, Any]) -> Path:
         identity = "|".join(str(file.get(key, "")) for key in ("id", "updated_at", "size"))
         digest = hashlib.sha256(identity.encode()).hexdigest()[:16]
-        return self.root / f"{file.get('id', 'file')}-{digest}.pdf"
+        name = str(file.get("display_name") or file.get("filename") or "")
+        extension = Path(name).suffix.lower() if Path(name).suffix.lower() in {".pdf", ".xlsx"} else ".bin"
+        return self.root / f"{file.get('id', 'file')}-{digest}{extension}"
 
     def get(self, file: dict[str, Any]) -> Path | None:
         path = self.path_for(file)

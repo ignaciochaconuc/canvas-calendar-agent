@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from agents import Agent, Runner
@@ -10,13 +11,13 @@ from agents import Agent, Runner
 from ..models import EventCandidate
 from .instructions import ACADEMIC_EVENT_INSTRUCTIONS
 from .model_provider import build_model
-from .schemas import ExtractedAcademicEvent
+from .schemas import CandidateAnalysis
 
 # El Agent reúne identidad, instrucciones y contrato de salida. No recibe tools.
 academic_event_agent = Agent(
     name="Intérprete de eventos académicos",
     instructions=ACADEMIC_EVENT_INSTRUCTIONS,
-    output_type=ExtractedAcademicEvent,
+    output_type=CandidateAnalysis,
     model=build_model(),
     tools=[],
 )
@@ -42,10 +43,15 @@ def build_candidate_input(candidate: EventCandidate) -> str:
 
 def interpret_candidate(
     candidate: EventCandidate, *, runner: Any = Runner
-) -> ExtractedAcademicEvent:
+) -> CandidateAnalysis:
     """Ejecuta una interacción y devuelve la salida Pydantic validada."""
     result = runner.run_sync(academic_event_agent, build_candidate_input(candidate))
     output = result.final_output
-    if isinstance(output, ExtractedAcademicEvent):
-        return output
-    return ExtractedAcademicEvent.model_validate(output)
+    analysis = output if isinstance(output, CandidateAnalysis) else CandidateAnalysis.model_validate(output)
+    explicit_years = {int(value) for value in re.findall(
+        r"(?<!\d)(20\d{2})(?!\d)", candidate.text or ""
+    )}
+    # El schema valida el formato; esta barrera valida la evidencia del año.
+    events = [event if event.year is None or event.year in explicit_years
+              else event.model_copy(update={"year": None}) for event in analysis.events]
+    return analysis.model_copy(update={"events": events})

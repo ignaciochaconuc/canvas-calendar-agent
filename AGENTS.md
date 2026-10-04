@@ -6,7 +6,7 @@ Este repositorio implementa exploración de lectura de Canvas, un pipeline
 determinístico y un agente experimental que interpreta manualmente un único
 `EventCandidate` con salida Pydantic. El agente no tiene tools ni acceso directo a
 Canvas. El backend puede ser Ollama local u OpenAI mediante una capa desacoplada.
-Incluye descarga manual y extracción local de PDFs relevantes. No agregar Google
+Incluye descarga manual y extracción local de PDFs y XLSX relevantes. No agregar Google
 Calendar, OCR, tools, handoffs, memoria/sessions ni procesamiento automático masivo
 hasta petición explícita.
 
@@ -24,7 +24,7 @@ hasta petición explícita.
   conservar y mostrar la información del periodo de Canvas.
 - Reutilizar la paginación común y validar que sus enlaces permanezcan en el mismo
   origen antes de enviar el token.
-- Descargar solo PDFs elegidos explícitamente, con límite de tamaño, caché ignorada,
+- Descargar solo PDFs/XLSX elegidos explícitamente, con límite de tamaño, caché ignorada,
   validación MIME y sin reenviar autenticación a orígenes externos.
 - Normalizar timestamps con zona mediante `zoneinfo` a `America/Santiago`; nunca
   eliminar offsets ni asumir silenciosamente una zona para timestamps ingenuos.
@@ -35,6 +35,8 @@ hasta petición explícita.
   prompts, logs, tests, documentación o commits.
 - El modelo solo debe recibir nombre del curso, tipo de fuente, título, texto y fecha
   de publicación del candidato. No pasar tokens, objetos cliente, IDs o URLs.
+- Descartar cualquier año del modelo que no aparezca explícitamente en el texto; los
+  años faltantes se resuelven después mediante metadata inequívoca del curso.
 - Los tests del agente deben mockear el Runner y no pueden usar la API real.
 - Mantener `tools=[]` hasta que se solicite explícitamente una primera tool.
 - Mantener toda dependencia y configuración específica de Ollama/OpenAI dentro de
