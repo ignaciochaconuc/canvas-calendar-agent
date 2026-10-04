@@ -3,15 +3,15 @@
 Explorador y pipeline de solo lectura para normalizar información académica de
 Canvas UC antes de construir futuras integraciones.
 
-Esta etapa permite elegir un curso y consultar tareas, módulos, páginas, archivos,
-eventos de calendario, anuncios y syllabus. No descarga archivos ni integra Google
-Calendar, OpenAI o agentes. Las fechas explícitas se transforman localmente en
-`AcademicEvent`; el texto pendiente queda como `EventCandidate`.
+Permite consultar fuentes de Canvas, transformar fechas explícitas en
+`AcademicEvent` e interpretar manualmente un `EventCandidate` mediante un agente.
+No descarga archivos ni integra Google Calendar.
 
 ## Requisitos e instalación
 
 - Python 3.10 o superior
 - Un token de acceso personal de Canvas
+- Ollama, solo si se usará el proveedor local
 
 ```powershell
 python -m venv .venv
@@ -25,7 +25,9 @@ Configura `.env` con la raíz de la misma instancia donde generaste el token:
 ```dotenv
 CANVAS_BASE_URL=https://cursos.canvas.uc.cl
 CANVAS_TOKEN=tu_token_personal
-OPENAI_API_KEY=tu_api_key_de_openai
+MODEL_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434/v1
+OLLAMA_MODEL=qwen3:8b
 ```
 
 `.env` está ignorado por Git. No compartas ni confirmes ese archivo.
@@ -98,7 +100,8 @@ python main.py agent
 ```
 
 El agente usa el OpenAI Agents SDK y devuelve un `ExtractedAcademicEvent` validado
-por Pydantic. Recibe únicamente:
+por Pydantic. El backend puede ser Ollama local u OpenAI sin duplicar la definición
+del agente. Recibe únicamente:
 
 - nombre del curso;
 - tipo de fuente;
@@ -115,9 +118,56 @@ Componentes educativos del agente:
 - `agent/academic_agent.py`: define el `Agent` y ejecuta `Runner.run_sync`;
 - `agent/instructions.py`: contiene sus instrucciones;
 - `agent/schemas.py`: define el `output_type` Pydantic.
+- `agent/model_provider.py`: construye el modelo y valida su disponibilidad.
 
-La clave se lee exclusivamente desde `OPENAI_API_KEY` en `.env`. Los tests mockean
-el Runner y nunca realizan llamadas reales ni consumen API.
+### Ollama local
+
+Instala Ollama desde su instalador para Windows y confirma que el comando esté
+disponible. Después descarga el modelo configurado:
+
+```powershell
+ollama pull qwen3:8b
+```
+
+La aplicación espera el endpoint OpenAI-compatible local:
+
+```text
+http://localhost:11434/v1
+```
+
+Normalmente la aplicación de Ollama inicia el servicio. Si no está activo, puedes
+iniciarlo manualmente:
+
+```powershell
+ollama serve
+```
+
+Comprueba el modelo y el endpoint antes de ejecutar el agente:
+
+```powershell
+ollama list
+Invoke-RestMethod http://localhost:11434/v1/models
+python main.py agent
+```
+
+`ollama run qwen3:8b` permite además comprobar el modelo de forma interactiva, pero
+no necesita permanecer abierto si el servicio ya está ejecutándose. Ollama no exige
+`OPENAI_API_KEY`; internamente se usa el valor público ficticio `ollama` requerido
+por el cliente compatible. El tracing hacia OpenAI queda desactivado.
+
+### Cambiar a OpenAI
+
+Configura estas variables en `.env`:
+
+```dotenv
+MODEL_PROVIDER=openai
+OPENAI_MODEL=tu_modelo
+OPENAI_API_KEY=tu_api_key
+```
+
+Solo la capa `model_provider.py` conoce la diferencia entre proveedores. El Agent,
+las instrucciones, el Runner y el schema son los mismos. Los tests mockean modelos
+y Runner; nunca ejecutan inferencia real ni consumen API.
 
 ## Tests
 

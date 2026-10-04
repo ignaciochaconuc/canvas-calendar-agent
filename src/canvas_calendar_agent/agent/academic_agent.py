@@ -9,6 +9,7 @@ from agents import Agent, Runner
 
 from ..models import EventCandidate
 from .instructions import ACADEMIC_EVENT_INSTRUCTIONS
+from .model_provider import build_model
 from .schemas import ExtractedAcademicEvent
 
 # El Agent reúne identidad, instrucciones y contrato de salida. No recibe tools.
@@ -16,6 +17,7 @@ academic_event_agent = Agent(
     name="Intérprete de eventos académicos",
     instructions=ACADEMIC_EVENT_INSTRUCTIONS,
     output_type=ExtractedAcademicEvent,
+    model=build_model(),
     tools=[],
 )
 

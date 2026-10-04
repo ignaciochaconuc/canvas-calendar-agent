@@ -234,11 +234,10 @@ def run_agent_mode(client: CanvasClient, courses: list[dict[str, Any]]) -> None:
         except (ValueError, IndexError):
             print(f"Ingresa un número entre 1 y {len(visible)}.")
 
-    if not os.getenv("OPENAI_API_KEY"):
-        raise CanvasError("OPENAI_API_KEY no está configurada en .env.")
     # Import tardío: los otros modos no inicializan el componente experimental.
-    from canvas_calendar_agent.agent import interpret_candidate
+    from canvas_calendar_agent.agent import check_model_available, interpret_candidate
 
+    check_model_available()
     result = interpret_candidate(candidate)
     print("\nResultado:\n")
     for field, value in result.model_dump(mode="json").items():
@@ -270,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nExploración cancelada.")
         return 0
-    except CanvasError as exc:
+    except (CanvasError, ValueError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
     return 0
