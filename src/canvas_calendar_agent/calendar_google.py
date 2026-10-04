@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib, json
 from pathlib import Path
 from typing import Any
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from .consolidation import normalize_title
 from .models import ConsolidatedEvent
@@ -30,15 +31,19 @@ def google_event_payload(event: ConsolidatedEvent) -> dict[str, Any]:
     if event.all_day:
         payload["start"] = {"date": event.start_at.date().isoformat()}
         end = event.end_at.date() if event.end_at else event.start_at.date()
-        from datetime import timedelta
         payload["end"] = {"date": (end + timedelta(days=1)).isoformat()}
     else:
         start = event.start_at.astimezone(ZoneInfo(TZ))
-        from datetime import timedelta
-        end = (event.end_at or event.start_at + timedelta(hours=1)).astimezone(ZoneInfo(TZ))
+        end = event.end_at.astimezone(ZoneInfo(TZ)) if event.end_at else _default_timed_end(start)
         payload["start"] = {"dateTime": start.isoformat(), "timeZone": TZ}
         payload["end"] = {"dateTime": end.isoformat(), "timeZone": TZ}
     return payload
+
+def _default_timed_end(start: datetime) -> datetime:
+    """Da una hora de duración sin invadir el día siguiente."""
+    proposed=start+timedelta(hours=1)
+    day_end=datetime.combine(start.date(),time.max,tzinfo=start.tzinfo)
+    return min(proposed,day_end)
 
 def authorize(credentials_path: Path, token_path: Path):
     from google.auth.transport.requests import Request

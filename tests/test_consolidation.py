@@ -43,6 +43,15 @@ class CalendarTests(unittest.TestCase):
   self.assertEqual(sync_key(item),sync_key(item))
  def test_all_day_payload(self):
   payload=google_event_payload(self.approved(True)); self.assertIn('date',payload['start']); self.assertNotIn('dateTime',payload['start'])
+ def test_late_deadline_does_not_cross_day_and_noon_is_unchanged(self):
+  late=self.approved(); late.start_at=datetime(2026,10,2,23,59,59,tzinfo=TZ)
+  payload=google_event_payload(late)
+  self.assertEqual(payload['start']['dateTime'][:19],'2026-10-02T23:59:59')
+  self.assertTrue(payload['end']['dateTime'].startswith('2026-10-02T23:59:59.'))
+  noon=self.approved(); noon.start_at=datetime(2026,10,2,12,0,tzinfo=TZ)
+  payload=google_event_payload(noon)
+  self.assertEqual(payload['start']['dateTime'][:19],'2026-10-02T12:00:00')
+  self.assertEqual(payload['end']['dateTime'][:19],'2026-10-02T13:00:00')
  def test_confirmation_and_registry_prevent_duplicates(self):
   item=self.approved(); service=Mock(); registry={}
   self.assertIs(sync_approved(service,'cal',[item],registry,confirmed=False),registry)
