@@ -104,7 +104,8 @@ texto se reportan sin candidatos; no hay OCR.
 `python main.py files --agent` añade una segunda selección manual y envía exactamente
 un candidato al agente configurado. Nunca envía el documento completo automáticamente.
 
-Los XLSX se leen localmente con `openpyxl` en modo `data_only=True`: no se ejecutan
+Los XLSX se leen localmente con `openpyxl` en modo `data_only=True` y los XLS antiguos
+con `xlrd`: no se ejecutan
 fórmulas ni macros y solo se crean bloques de hojas/filas con fechas o vocabulario
 académico. Las descargas aceptan solo PDF/XLSX, aplican `MAX_FILE_SIZE_MB` y no reenvían
 el token de Canvas a hosts externos durante redirecciones.

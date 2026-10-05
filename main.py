@@ -20,7 +20,7 @@ from canvas_calendar_agent.candidates import build_event_candidates  # noqa: E40
 from canvas_calendar_agent.config import (group_courses_by_term, load_course_ids, load_semester,
                                            save_course_ids, save_semester)  # noqa: E402
 from canvas_calendar_agent.extractors import extract_structured_events  # noqa: E402
-from canvas_calendar_agent.documents import (extract_pdf, extract_xlsx, file_candidates,
+from canvas_calendar_agent.documents import (extract_pdf, extract_spreadsheet, file_candidates,
                                               is_relevant_file, spreadsheet_candidates)  # noqa: E402
 from canvas_calendar_agent.file_cache import FileCache  # noqa: E402
 from canvas_calendar_agent.year_resolution import resolve_event_year  # noqa: E402
@@ -305,7 +305,7 @@ def run_files_mode(client: CanvasClient, courses: list[dict[str, Any]], *, use_a
     print("Archivos PDF relevantes:\n")
     for number, (course, file) in enumerate(choices, 1):
         name = str(file.get('display_name') or file.get('filename'))
-        kind = "XLSX" if name.lower().endswith(".xlsx") else "PDF"
+        kind = "XLS" if name.lower().endswith(".xls") else ("XLSX" if name.lower().endswith(".xlsx") else "PDF")
         print(f"{number}. [{kind}] {course_label(course)} | {name} | "
               f"{file.get('content-type', '?')} | {file.get('size', '?')} bytes")
     indexes = _choose_many(len(choices), "\nSelecciona archivos (ej. 1,3; q para salir): ")
@@ -315,8 +315,8 @@ def run_files_mode(client: CanvasClient, courses: list[dict[str, Any]], *, use_a
         course, file = choices[index]
         path = cache.get(file) or client.download_file(file, cache.path_for(file), max_bytes=max_bytes)
         filename = str(file.get("display_name") or file.get("filename"))
-        if filename.lower().endswith(".xlsx"):
-            document = extract_xlsx(path, filename=filename)
+        if filename.lower().endswith((".xlsx",".xls")):
+            document = extract_spreadsheet(path, filename=filename)
             generated = spreadsheet_candidates(document, file, course)
             detail = f"{len(document.sheet_names)} hojas"
         else:

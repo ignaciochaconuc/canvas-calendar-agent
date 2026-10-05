@@ -20,6 +20,8 @@ class DocumentTests(unittest.TestCase):
         self.assertFalse(is_relevant_file({**good, "filename": "Programacion lineal.pdf"}))
         self.assertFalse(is_relevant_file({**good, "content-type": "image/png"}))
         self.assertFalse(is_relevant_file({**good, "size": 30 * 1024 * 1024}))
+        self.assertTrue(is_relevant_file({"filename": "Programación-ICM3323-2026-2do.xls",
+            "content-type": "application/vnd.ms-excel", "size": 100}))
 
     def test_extract_and_build_candidate_from_tiny_pdf(self):
         with tempfile.TemporaryDirectory() as directory:

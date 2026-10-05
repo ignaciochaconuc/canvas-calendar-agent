@@ -239,6 +239,17 @@ class CanvasClientTests(unittest.TestCase):
                  "size": 2, "url": "https://canvas.example.edu/f"}, Path(directory) / "file.xlsx")
             self.assertEqual(path.read_bytes(), b"PK")
 
+    def test_download_accepts_legacy_xls_metadata(self):
+        session = self.make_session(); response = response_with(None)
+        response.headers = {"Content-Type": "application/vnd.ms-excel"}
+        response.iter_content.return_value = [b"XLS"]
+        session.get.return_value = response
+        with tempfile.TemporaryDirectory() as directory:
+            path = CanvasClient("https://canvas.example.edu", "token", session=session).download_file(
+                {"filename": "programacion.xls", "content-type": "application/vnd.ms-excel",
+                 "size": 3, "url": "https://canvas.example.edu/f"}, Path(directory) / "file.xls")
+            self.assertEqual(path.read_bytes(), b"XLS")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,7 @@ from typing import Any
 
 import pymupdf
 from openpyxl import load_workbook
+import xlrd
 
 from .models import (EventCandidate, ExtractedDocument, ExtractedSpreadsheet,
                      SpreadsheetRow)
@@ -24,6 +25,7 @@ MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agost
 DATE_RE = re.compile(r"\b(?:\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?|\d{4}-\d{2}-\d{2})\b")
 PDF_MIMES = {"application/pdf", "application/x-pdf"}
 XLSX_MIMES = {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}
+XLS_MIMES = {"application/vnd.ms-excel"}
 
 
 def _plain(value: str) -> str:
@@ -36,10 +38,14 @@ def is_relevant_file(file: dict[str, Any], *, max_bytes: int = 20 * 1024 * 1024)
     mime = str(file.get("content-type") or file.get("content_type") or "").lower()
     size = file.get("size", 0)
     supported = ((name.lower().endswith(".pdf") and mime in PDF_MIMES) or
-                 (name.lower().endswith(".xlsx") and mime in XLSX_MIMES))
+                 (name.lower().endswith(".xlsx") and mime in XLSX_MIMES) or
+                 (name.lower().endswith(".xls") and mime in XLS_MIMES))
+    normalized_name=_plain(name)
+    keyword_match=any(re.search(rf"\b{re.escape(word)}\b",normalized_name) for word in FILE_KEYWORDS)
+    course_schedule=bool(re.search(r"\bprogramacion[-_ ]+[a-z]{2,}\d",normalized_name))
     return (supported
             and isinstance(size, (int, float)) and size <= max_bytes
-            and any(re.search(rf"\b{re.escape(word)}\b", _plain(name)) for word in FILE_KEYWORDS))
+            and (keyword_match or course_schedule))
 
 
 def _cell_text(value: Any) -> str:
@@ -67,6 +73,27 @@ def extract_xlsx(path: Path, *, filename: str | None = None) -> ExtractedSpreads
                                     workbook.sheetnames, rows)
     finally:
         workbook.close()
+
+def extract_xls(path: Path, *, filename: str | None = None) -> ExtractedSpreadsheet:
+    workbook=xlrd.open_workbook(path,formatting_info=False,on_demand=True)
+    rows: list[SpreadsheetRow]=[]
+    try:
+        for sheet in workbook.sheets():
+            for index in range(sheet.nrows):
+                values=[]
+                for cell in sheet.row(index):
+                    if cell.ctype==xlrd.XL_CELL_DATE:
+                        value=datetime(*xlrd.xldate_as_tuple(cell.value,workbook.datemode))
+                    else: value=cell.value
+                    values.append(_cell_text(value))
+                while values and not values[-1]: values.pop()
+                if any(values): rows.append(SpreadsheetRow(sheet.name,index+1,values))
+        return ExtractedSpreadsheet(filename or path.name,next(iter(XLS_MIMES)),workbook.sheet_names(),rows)
+    finally:
+        workbook.release_resources()
+
+def extract_spreadsheet(path: Path, *, filename: str | None = None) -> ExtractedSpreadsheet:
+    return extract_xls(path,filename=filename) if path.suffix.lower()==".xls" else extract_xlsx(path,filename=filename)
 
 
 def spreadsheet_blocks(document: ExtractedSpreadsheet) -> list[tuple[str, list[int], str]]:

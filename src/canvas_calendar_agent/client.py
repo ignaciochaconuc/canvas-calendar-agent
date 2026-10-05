@@ -95,7 +95,8 @@ class CanvasClient:
         mime = str(file.get("content-type") or file.get("content_type") or "").lower()
         name = str(file.get("display_name") or file.get("filename") or "")
         allowed = {".pdf": {"application/pdf", "application/x-pdf"},
-                   ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"}}
+                   ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
+                   ".xls": {"application/vnd.ms-excel"}}
         extension = Path(name).suffix.lower()
         if extension not in allowed or mime not in allowed[extension]:
             raise CanvasError("Solo se permite descargar archivos PDF o XLSX identificados como tales.")
